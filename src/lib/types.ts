@@ -64,6 +64,33 @@ export const FILTER_OPS: { id: FilterOp; label: string; needsValue: boolean }[] 
   { id: "notnull", label: "not null", needsValue: false },
 ];
 
+export interface GraphColumn {
+  name: string;
+  data_type: string;
+  is_pk: boolean;
+  is_fk: boolean;
+}
+
+export interface GraphNode {
+  name: string;
+  kind: string;
+  est_rows: number;
+  columns: GraphColumn[];
+}
+
+export interface GraphEdge {
+  name: string;
+  source: string;
+  source_columns: string[];
+  target: string;
+  target_columns: string[];
+}
+
+export interface SchemaGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export interface AiStatus {
   available: boolean;
   path: string;

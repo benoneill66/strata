@@ -1,7 +1,7 @@
 // Fictional data for browser dev (bun run dev) — lets the UI render without
 // the Tauri backend or a real database, and keeps screenshots clean.
 
-import type { ColumnInfo, ConnectionProfile, Filter, QueryResult, SchemaInfo, TableInfo } from "./types";
+import type { ColumnInfo, ConnectionProfile, Filter, GraphNode, QueryResult, SchemaGraph, SchemaInfo, TableInfo } from "./types";
 
 export const demoConnections: ConnectionProfile[] = [
   {
@@ -97,6 +97,67 @@ export function demoRows(limit: number, offset: number, filters: Filter[]): Quer
     elapsed_ms: 12,
     truncated: false,
   };
+}
+
+// ---------- schema graph (ER diagram demo) ----------
+
+function gnode(name: string, kind: string, est: number, cols: [string, string, boolean?, boolean?][]): GraphNode {
+  return {
+    name,
+    kind,
+    est_rows: est,
+    columns: cols.map(([n, t, pk, fk]) => ({ name: n, data_type: t, is_pk: !!pk, is_fk: !!fk })),
+  };
+}
+
+const demoGraphPublic: SchemaGraph = {
+  nodes: [
+    gnode("users", "r", 48211, [
+      ["id", "uuid", true], ["email", "text"], ["name", "text"], ["plan", "text"],
+      ["mrr_cents", "integer"], ["created_at", "timestamptz"],
+    ]),
+    gnode("products", "r", 1240, [
+      ["id", "uuid", true], ["sku", "text"], ["name", "text"], ["price_cents", "integer"], ["active", "boolean"],
+    ]),
+    gnode("orders", "r", 391207, [
+      ["id", "uuid", true], ["user_id", "uuid", false, true], ["product_id", "uuid", false, true],
+      ["quantity", "integer"], ["total_cents", "integer"], ["status", "text"], ["created_at", "timestamptz"],
+    ]),
+    gnode("subscriptions", "r", 9210, [
+      ["id", "uuid", true], ["user_id", "uuid", false, true], ["product_id", "uuid", false, true],
+      ["interval", "text"], ["renews_at", "timestamptz"], ["canceled_at", "timestamptz"],
+    ]),
+    gnode("events", "p", 8120441, [
+      ["id", "bigint", true], ["user_id", "uuid", false, true], ["name", "text"],
+      ["props", "jsonb"], ["occurred_at", "timestamptz"],
+    ]),
+    gnode("daily_revenue", "m", 730, [
+      ["day", "date", true], ["gross_cents", "bigint"], ["orders", "integer"],
+    ]),
+  ],
+  edges: [
+    { name: "orders_user_id_fkey", source: "orders", source_columns: ["user_id"], target: "users", target_columns: ["id"] },
+    { name: "orders_product_id_fkey", source: "orders", source_columns: ["product_id"], target: "products", target_columns: ["id"] },
+    { name: "subscriptions_user_id_fkey", source: "subscriptions", source_columns: ["user_id"], target: "users", target_columns: ["id"] },
+    { name: "subscriptions_product_id_fkey", source: "subscriptions", source_columns: ["product_id"], target: "products", target_columns: ["id"] },
+    { name: "events_user_id_fkey", source: "events", source_columns: ["user_id"], target: "users", target_columns: ["id"] },
+  ],
+};
+
+const demoGraphAuth: SchemaGraph = {
+  nodes: [
+    gnode("sessions", "r", 18733, [
+      ["id", "uuid", true], ["user_id", "uuid", false, true], ["token", "text"], ["expires_at", "timestamptz"],
+    ]),
+    gnode("api_keys", "r", 64, [
+      ["id", "uuid", true], ["user_id", "uuid", false, true], ["label", "text"], ["last_used_at", "timestamptz"],
+    ]),
+  ],
+  edges: [],
+};
+
+export function demoGraph(schema: string): SchemaGraph {
+  return schema === "auth" ? demoGraphAuth : demoGraphPublic;
 }
 
 export function demoSuggestion(question: string) {

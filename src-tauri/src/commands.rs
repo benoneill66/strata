@@ -6,7 +6,10 @@ use tauri::State;
 use tokio_postgres::Client;
 
 use crate::ai::{self, SqlSuggestion};
-use crate::models::{AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, SchemaInfo, Settings, TableInfo};
+use crate::models::{
+    AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge, GraphNode,
+    QueryResult, SchemaGraph, SchemaInfo, Settings, TableInfo,
+};
 use crate::pg::{self, Pool};
 
 pub struct AppState {
@@ -218,6 +221,103 @@ pub async fn table_columns(
             default: r.get(4).cloned().flatten(),
         })
         .collect())
+}
+
+/// Build the whole picture of a schema in one shot: every relation, its columns
+/// (with PK/FK markers) and the foreign-key edges between them. Powers the
+/// interactive ER diagram. Edges are limited to FKs whose both ends live in the
+/// selected schema, so the graph stays self-contained.
+#[tauri::command]
+pub async fn schema_graph(state: State<'_, AppState>, id: String, schema: String) -> R<SchemaGraph> {
+    let client = client_for(&state, &id).await?;
+    let lit = pg::quote_lit(&schema);
+
+    // relations (preserve order; index by name for column/edge attachment)
+    let tables_sql = format!(
+        "SELECT c.relname, c.relkind::text, c.reltuples::bigint \
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = {lit} AND c.relkind IN ('r','p','v','m','f') \
+         ORDER BY c.relname"
+    );
+    let tables = pg::simple(&client, &tables_sql, 50_000).await?;
+    let mut nodes: Vec<GraphNode> = Vec::with_capacity(tables.rows.len());
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for r in &tables.rows {
+        let name = cell(r, 0);
+        index.insert(name.clone(), nodes.len());
+        nodes.push(GraphNode {
+            name,
+            kind: cell(r, 1),
+            est_rows: cell(r, 2).parse().unwrap_or(-1),
+            columns: Vec::new(),
+        });
+    }
+
+    // columns for every relation in the schema
+    let cols_sql = format!(
+        "SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), \
+                COALESCE((SELECT true FROM pg_index i \
+                          WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)), false) \
+         FROM pg_attribute a \
+         JOIN pg_class c ON c.oid = a.attrelid \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = {lit} AND c.relkind IN ('r','p','v','m','f') \
+                AND a.attnum > 0 AND NOT a.attisdropped \
+         ORDER BY c.relname, a.attnum"
+    );
+    let cols = pg::simple(&client, &cols_sql, 200_000).await?;
+    for r in &cols.rows {
+        if let Some(&i) = index.get(&cell(r, 0)) {
+            nodes[i].columns.push(GraphColumn {
+                name: cell(r, 1),
+                data_type: cell(r, 2),
+                is_pk: cell(r, 3) == "t",
+                is_fk: false,
+            });
+        }
+    }
+
+    // foreign-key edges (both endpoints in this schema)
+    let edges_sql = format!(
+        "SELECT con.conname, src.relname, tgt.relname, \
+                (SELECT string_agg(a.attname, ',' ORDER BY k.ord) \
+                   FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) \
+                   JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum), \
+                (SELECT string_agg(a.attname, ',' ORDER BY k.ord) \
+                   FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord) \
+                   JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum) \
+         FROM pg_constraint con \
+         JOIN pg_class src ON src.oid = con.conrelid \
+         JOIN pg_namespace sn ON sn.oid = src.relnamespace \
+         JOIN pg_class tgt ON tgt.oid = con.confrelid \
+         JOIN pg_namespace tn ON tn.oid = tgt.relnamespace \
+         WHERE con.contype = 'f' AND sn.nspname = {lit} AND tn.nspname = {lit} \
+         ORDER BY con.conname"
+    );
+    let edges_res = pg::simple(&client, &edges_sql, 50_000).await?;
+    let split = |s: String| s.split(',').map(|p| p.to_string()).collect::<Vec<_>>();
+    let mut edges: Vec<GraphEdge> = Vec::with_capacity(edges_res.rows.len());
+    for r in &edges_res.rows {
+        let source = cell(r, 1);
+        let source_columns = split(cell(r, 3));
+        // mark the source columns as FKs on their node
+        if let Some(&i) = index.get(&source) {
+            for c in &mut nodes[i].columns {
+                if source_columns.contains(&c.name) {
+                    c.is_fk = true;
+                }
+            }
+        }
+        edges.push(GraphEdge {
+            name: cell(r, 0),
+            source,
+            source_columns,
+            target: cell(r, 2),
+            target_columns: split(cell(r, 4)),
+        });
+    }
+
+    Ok(SchemaGraph { nodes, edges })
 }
 
 // ---------- data ----------

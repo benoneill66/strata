@@ -80,6 +80,41 @@ pub struct AiStatus {
     pub path: String,
 }
 
+// ---------- schema graph (ER diagram) ----------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphColumn {
+    pub name: String,
+    pub data_type: String,
+    pub is_pk: bool,
+    pub is_fk: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphNode {
+    pub name: String,
+    /// r = table, p = partitioned, v = view, m = matview, f = foreign
+    pub kind: String,
+    pub est_rows: i64,
+    pub columns: Vec<GraphColumn>,
+}
+
+/// A foreign-key relationship between two relations in the same schema.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphEdge {
+    pub name: String,
+    pub source: String,
+    pub source_columns: Vec<String>,
+    pub target: String,
+    pub target_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SchemaGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct QueryResult {
     pub columns: Vec<String>,

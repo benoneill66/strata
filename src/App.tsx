@@ -5,6 +5,7 @@ import { Sidebar, type ViewId } from "./components/Sidebar";
 import { ConnectionDialog, blankProfile } from "./components/ConnectionDialog";
 import { Toaster, toast } from "./components/ui";
 import { Browse } from "./views/Browse";
+import { Schema } from "./views/Schema";
 import { Query } from "./views/Query";
 import { Settings } from "./views/Settings";
 
@@ -135,6 +136,15 @@ export default function App() {
               connId={activeId && activeInfo ? activeId : null}
               database={activeInfo?.database ?? null}
               defaultLimit={settings.row_limit}
+              hasConnections={hasConnections}
+              onNew={newConnection}
+              onSwitchDatabase={switchDatabase}
+            />
+          </div>
+          <div style={{ display: view === "schema" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <Schema
+              connId={activeId && activeInfo ? activeId : null}
+              database={activeInfo?.database ?? null}
               hasConnections={hasConnections}
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}

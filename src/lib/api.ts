@@ -1,4 +1,4 @@
-import type { AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
+import type { AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -57,6 +57,9 @@ export const api = {
 
   tableColumns: (id: string, schema: string, table: string): Promise<ColumnInfo[]> =>
     IS_TAURI ? invoke("table_columns", { id, schema, table }) : demo.wait(demo.demoColumns, 150),
+
+  schemaGraph: (id: string, schema: string): Promise<SchemaGraph> =>
+    IS_TAURI ? invoke("schema_graph", { id, schema }) : demo.wait(demo.demoGraph(schema), 260),
 
   tableRows: (
     id: string,

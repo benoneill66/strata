@@ -56,6 +56,7 @@ pub fn run() {
             commands::list_schemas,
             commands::list_tables,
             commands::table_columns,
+            commands::schema_graph,
             commands::table_rows,
             commands::table_count,
             commands::run_query,
