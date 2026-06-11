@@ -120,56 +120,70 @@ body.no-native {
 }
 .nav-item.disabled { opacity: 0.4; pointer-events: none; }
 
-/* ---------- connection list ---------- */
-.conn-add {
-  -webkit-app-region: no-drag;
-  display: grid; place-items: center;
-  width: 22px; height: 22px; border-radius: 7px;
-  color: var(--muted); background: transparent; border: none; cursor: default;
-  transition: color .15s ease, background .15s ease;
-}
-.conn-add:hover { color: var(--text); background: rgba(255,255,255,0.07); }
-
-.conn-empty {
-  -webkit-app-region: no-drag;
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 11px; border-radius: 11px; cursor: default;
-  color: var(--muted); font-size: 12.5px; font-weight: 500;
-  background: transparent; border: 1px dashed var(--hair); width: 100%;
-  transition: color .15s ease, border-color .15s ease;
-}
-.conn-empty:hover { color: var(--text); border-color: rgba(255,255,255,0.22); }
-
-.conn-item {
-  position: relative;
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 9px 8px 11px; border-radius: 10px; cursor: default;
-  transition: background .15s ease;
-}
-.conn-item:hover { background: rgba(255,255,255,0.05); }
-.conn-item.active { background: rgba(255,255,255,0.08); }
-.conn-item.active::before {
-  content: "";
-  position: absolute; left: -10px; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 18px; border-radius: 3px;
-  background: var(--c, var(--accent));
-  box-shadow: 0 0 12px var(--c, rgba(79,168,255,0.85));
-}
+/* ---------- connection switcher ---------- */
 .conn-name {
   font-size: 13px; font-weight: 550; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.conn-item:not(.active) .conn-name { color: var(--muted); }
-.conn-item:hover .conn-name { color: var(--text); }
 .conn-sub {
   font-size: 10.5px; color: var(--muted); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* trigger button */
+.conn-trigger {
+  position: relative;
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px 11px; border-radius: 11px; cursor: default;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--hair-soft);
+  transition: background .15s ease, border-color .15s ease;
+}
+.conn-trigger:hover { background: rgba(255,255,255,0.07); border-color: var(--hair); }
+.conn-trigger::before {
+  content: "";
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 20px; border-radius: 0 3px 3px 0;
+  background: var(--c, transparent);
+  box-shadow: 0 0 12px var(--c, transparent);
+}
+
+/* dropdown */
+.conn-menu-scrim { position: fixed; inset: 0; z-index: 80; }
+.conn-menu {
+  z-index: 81;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px; border-radius: 13px;
+  background: rgba(22,27,40,0.86);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--hair);
+  box-shadow: 0 18px 50px -12px rgba(0,0,0,0.7);
+  max-height: 60vh; overflow-y: auto;
+}
+.conn-menu-item {
+  position: relative;
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 9px 8px 11px; border-radius: 9px; cursor: default;
+  transition: background .12s ease;
+}
+.conn-menu-item:hover { background: rgba(255,255,255,0.06); }
+.conn-menu-item.active { background: rgba(79,168,255,0.12); }
+.conn-menu-item.active::before {
+  content: "";
+  position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 3px;
+  background: var(--c, var(--accent));
+  box-shadow: 0 0 12px var(--c, rgba(79,168,255,0.85));
+}
+.conn-menu-item.add { padding-left: 13px; }
+.conn-menu-item.add:hover .conn-name { color: var(--text); }
+.conn-menu-sep { height: 1px; background: var(--hair-soft); margin: 5px 4px; }
+
 .conn-actions {
   display: flex; align-items: center; gap: 1px; flex-shrink: 0;
   opacity: 0; transition: opacity .15s ease;
 }
-.conn-item:hover .conn-actions { opacity: 1; }
+.conn-menu-item:hover .conn-actions { opacity: 1; }
 .conn-actions button {
   -webkit-app-region: no-drag;
   display: grid; place-items: center;

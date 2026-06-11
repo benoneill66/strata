@@ -1,6 +1,7 @@
 import { Icon } from "../lib/icons";
 import { startWindowDrag } from "../lib/api";
 import type { ConnectionProfile, DbInfo } from "../lib/types";
+import { ConnectionPicker } from "./ConnectionPicker";
 
 export type ViewId = "browse" | "query" | "settings";
 
@@ -54,66 +55,24 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* ---------- connections ---------- */}
-      <div className="no-drag" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 7px" }}>
-        <span className="label" style={{ letterSpacing: "0.08em" }}>Connections</span>
-        <button
-          className="conn-add"
-          title="New connection"
-          onClick={onNew}
-        >
-          <Icon.plus w={13} />
-        </button>
+      {/* ---------- connection switcher ---------- */}
+      <div className="no-drag" style={{ padding: "0 2px 4px" }}>
+        <span className="label" style={{ letterSpacing: "0.08em", padding: "0 6px" }}>Connection</span>
+      </div>
+      <div className="no-drag" style={{ padding: "0 2px 4px" }}>
+        <ConnectionPicker
+          connections={connections}
+          connected={connected}
+          activeId={activeId}
+          busyId={busyId}
+          onSelect={onSelect}
+          onDisconnect={onDisconnect}
+          onEdit={onEdit}
+          onNew={onNew}
+        />
       </div>
 
-      <div className="no-drag" style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", maxHeight: "38vh", marginBottom: 4 }}>
-        {connections.length === 0 ? (
-          <button className="conn-empty" onClick={onNew}>
-            <Icon.plus w={13} /> Add connection
-          </button>
-        ) : (
-          connections.map((c) => {
-            const info = connected[c.id];
-            const isActive = activeId === c.id;
-            const isBusy = busyId === c.id;
-            return (
-              <div
-                key={c.id}
-                className={`conn-item ${isActive ? "active" : ""}`}
-                style={{ ["--c" as string]: c.color }}
-                onClick={() => onSelect(c.id)}
-                title={`${c.user}@${c.host}:${c.port}/${c.database}`}
-              >
-                <span className={`dot ${isBusy ? "running" : info ? "ok" : "idle"}`} />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="conn-name">{c.name || c.host}</div>
-                  {isActive && info && (
-                    <div className="conn-sub mono">{info.database} · pg {info.version.split(".")[0]}</div>
-                  )}
-                </div>
-                <div className="conn-actions">
-                  {info && (
-                    <button
-                      title="Disconnect"
-                      onClick={(e) => { e.stopPropagation(); onDisconnect(c.id); }}
-                    >
-                      <Icon.close w={12} />
-                    </button>
-                  )}
-                  <button
-                    title="Edit"
-                    onClick={(e) => { e.stopPropagation(); onEdit(c); }}
-                  >
-                    <Icon.edit w={12} />
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <div style={{ height: 1, background: "var(--hair-soft)", margin: "8px 6px 10px" }} />
+      <div style={{ height: 1, background: "var(--hair-soft)", margin: "10px 6px 10px" }} />
 
       {/* ---------- workspace ---------- */}
       <nav className="no-drag" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
