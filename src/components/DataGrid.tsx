@@ -35,14 +35,22 @@ export function DataGrid({
   useEffect(() => setEdit(null), [result]);
   useEffect(() => () => { if (clickTimer.current) window.clearTimeout(clickTimer.current); }, []);
 
-  function rowClick(row: (string | null)[]) {
+  function rowClick(row: (string | null)[], e: React.MouseEvent) {
     if (!onRowClick) return;
     if (!onEditCell) {
       onRowClick(row);
       return;
     }
     if (clickTimer.current) window.clearTimeout(clickTimer.current);
-    clickTimer.current = window.setTimeout(() => onRowClick(row), 240);
+    // the second click of a double-click cancels the drawer; only a lone
+    // first click schedules it
+    if (e.detail > 1) {
+      clickTimer.current = null;
+      return;
+    }
+    // once the drawer's scrim is up a double-click can't reach the cell at
+    // all, so the delay must outlast a slow double-click's gap
+    clickTimer.current = window.setTimeout(() => onRowClick(row), 350);
   }
 
   function startEdit(r: number, c: number, cell: string | null) {
@@ -86,7 +94,7 @@ export function DataGrid({
         </thead>
         <tbody>
           {result.rows.map((row, i) => (
-            <tr key={i} onClick={onRowClick ? () => rowClick(row) : undefined} style={onRowClick ? { cursor: "default" } : undefined}>
+            <tr key={i} onClick={onRowClick ? (e) => rowClick(row, e) : undefined} style={onRowClick ? { cursor: "default" } : undefined}>
               <td className="idx">{startIndex + i + 1}</td>
               {row.map((cell, j) =>
                 edit && edit.r === i && edit.c === j ? (
