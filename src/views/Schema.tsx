@@ -9,8 +9,8 @@ import { DatabasePicker } from "../components/DatabasePicker";
 import { Empty, Spinner } from "../components/ui";
 
 // Node geometry — must match the CSS in styles.css (.erd-node).
-const NODE_W = 220;
-const HEADER_H = 34;
+const NODE_W = 224;
+const HEADER_H = 40;
 const ROW_H = 21;
 const PAD_B = 7;
 
@@ -201,7 +201,12 @@ export function Schema({
   const [view, setView] = useState({ x: 0, y: 0, z: 1 }); // pan + zoom
 
   const vpRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ kind: "pan" | "node"; name?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const drag = useRef<
+    | { kind: "pan" | "node"; name?: string; sx: number; sy: number; ox: number; oy: number }
+    | { kind: "zoom"; sy: number; mx: number; my: number; z0: number; vx0: number; vy0: number }
+    | null
+  >(null);
+  const movedRef = useRef(false); // distinguishes a drag from a click (read by click handlers)
   const gRef = useRef<SchemaGraph | null>(null);
   const layRef = useRef<Layout>({});
   const viewRef = useRef(view);
@@ -309,13 +314,20 @@ export function Schema({
     if (doFit()) fittedRef.current = true;
   }
 
-  // ----- pan / node drag (stable handlers so memoised nodes don't rebuild) -----
+  // ----- drag: pan background, move a node, or ⌘-drag to zoom -----
+  // (stable handlers so the memoised node/edge subtree doesn't rebuild)
   const onMove = useCallback((e: MouseEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (d.kind === "zoom") {
+      movedRef.current = true;
+      const nz = Math.min(2, Math.max(0.12, d.z0 * Math.exp((d.sy - e.clientY) * 0.005)));
+      setView({ z: nz, x: d.mx - ((d.mx - d.vx0) / d.z0) * nz, y: d.my - ((d.my - d.vy0) / d.z0) * nz });
+      return;
+    }
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+    if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
     if (d.kind === "pan") {
       setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
     } else if (d.name) {
@@ -331,9 +343,16 @@ export function Schema({
   const onPointerDown = useCallback((e: React.MouseEvent, name?: string) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    movedRef.current = false;
     const v = viewRef.current;
-    const p = name ? layRef.current[name] : null;
-    drag.current = { kind: name ? "node" : "pan", name, sx: e.clientX, sy: e.clientY, ox: name && p ? p.x : v.x, oy: name && p ? p.y : v.y, moved: false };
+    // ⌘ + drag on the background = zoom (vertical), anchored at the cursor
+    if (!name && (e.metaKey || e.altKey)) {
+      const rect = vpRef.current!.getBoundingClientRect();
+      drag.current = { kind: "zoom", sy: e.clientY, mx: e.clientX - rect.left, my: e.clientY - rect.top, z0: v.z, vx0: v.x, vy0: v.y };
+    } else {
+      const p = name ? layRef.current[name] : null;
+      drag.current = { kind: name ? "node" : "pan", name, sx: e.clientX, sy: e.clientY, ox: name && p ? p.x : v.x, oy: name && p ? p.y : v.y };
+    }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [onMove, onUp]);
@@ -343,20 +362,54 @@ export function Schema({
     setExpanded((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
   }, []);
   const clickNode = useCallback((name: string) => {
-    if (drag.current?.moved) return; // a drag, not a click
+    if (movedRef.current) return; // a drag, not a click
     setSel((s) => (s === name ? null : name));
   }, []);
 
-  function onWheel(e: React.WheelEvent) {
+  // Trackpad gestures via non-passive native listeners (React's onWheel is
+  // passive, so it can't preventDefault the WKWebView's own pinch-zoom and
+  // two-finger back-swipe; pinch arrives as Safari gesture* events, not wheel).
+  // Two-finger drag → pan · pinch → zoom · also ctrl+wheel → zoom (dev browser).
+  useEffect(() => {
     const vp = vpRef.current;
     if (!vp) return;
-    const rect = vp.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    setView((v) => {
-      const nz = Math.min(2, Math.max(0.12, v.z * (e.deltaY < 0 ? 1.12 : 0.89)));
-      return { z: nz, x: mx - ((mx - v.x) / v.z) * nz, y: my - ((my - v.y) / v.z) * nz };
-    });
-  }
+    const clamp = (z: number) => Math.min(2, Math.max(0.12, z));
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      if (e.ctrlKey) {
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const f = Math.min(1.6, Math.max(0.62, Math.exp(-e.deltaY * 0.01)));
+        setView((v) => ({ z: clamp(v.z * f), x: mx - ((mx - v.x) / v.z) * clamp(v.z * f), y: my - ((my - v.y) / v.z) * clamp(v.z * f) }));
+      } else {
+        setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
+      }
+    };
+    let gz = { z0: 1, mx: 0, my: 0, vx0: 0, vy0: 0 };
+    const onGestureStart = (e: any) => {
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      const v = viewRef.current;
+      gz = { z0: v.z, mx: e.clientX - rect.left, my: e.clientY - rect.top, vx0: v.x, vy0: v.y };
+    };
+    const onGestureChange = (e: any) => {
+      e.preventDefault();
+      const nz = clamp(gz.z0 * e.scale);
+      setView({ z: nz, x: gz.mx - ((gz.mx - gz.vx0) / gz.z0) * nz, y: gz.my - ((gz.my - gz.vy0) / gz.z0) * nz });
+    };
+    const prevent = (e: Event) => e.preventDefault();
+    vp.addEventListener("wheel", onWheel, { passive: false });
+    vp.addEventListener("gesturestart", onGestureStart as EventListener, { passive: false });
+    vp.addEventListener("gesturechange", onGestureChange as EventListener, { passive: false });
+    vp.addEventListener("gestureend", prevent as EventListener, { passive: false });
+    return () => {
+      vp.removeEventListener("wheel", onWheel);
+      vp.removeEventListener("gesturestart", onGestureStart as EventListener);
+      vp.removeEventListener("gesturechange", onGestureChange as EventListener);
+      vp.removeEventListener("gestureend", prevent as EventListener);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId]);
 
   function focusNode(name: string) {
     const vp = vpRef.current;
@@ -552,8 +605,7 @@ export function Schema({
         ref={vpRef}
         className="erd-viewport no-drag"
         onMouseDown={(e) => onPointerDown(e)}
-        onWheel={onWheel}
-        onClick={() => { if (!drag.current?.moved) setSel(null); }}
+        onClick={() => { if (!movedRef.current) setSel(null); }}
       >
         {graph.loading && graph.initial && (
           <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><Spinner size={22} /></div>
@@ -578,6 +630,7 @@ export function Schema({
           <div className="erd-legend mono">
             <span><span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span> primary key</span>
             <span><span style={{ color: "var(--accent-2)" }}><Icon.link w={10} /></span> foreign key</span>
+            <span className="erd-hint">two-finger drag to pan · pinch or ⌘-drag to zoom</span>
           </div>
         )}
       </div>

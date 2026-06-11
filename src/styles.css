@@ -376,7 +376,7 @@ body.no-native {
   border-bottom: 1px solid var(--hair);
 }
 .erd-node-head .nm {
-  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em;
+  flex: 1; min-width: 0; font-size: 14.5px; font-weight: 680; letter-spacing: -0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);
 }
 .erd-kind { font-size: 10px; color: var(--muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; flex-shrink: 0; }
@@ -408,6 +408,7 @@ body.no-native {
   backdrop-filter: blur(10px);
 }
 .erd-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.erd-legend .erd-hint { opacity: 0.62; padding-left: 9px; border-left: 1px solid var(--hair-soft); }
 
 /* table list rows (left panel) */
 .tbl-item {
