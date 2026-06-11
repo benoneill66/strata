@@ -1,65 +1,82 @@
+<div align="center">
+
+<img src="src-tauri/icons/128x128@2x.png" width="92" alt="Strata icon" />
+
 # Strata
 
-A native macOS Postgres data browser — the fast counterpart to pgAdmin.
-Connect, click a table, and see your data instantly: filter, sort and page
-without writing SQL, with a proper editor one tab away when you need it.
+**A native macOS Postgres browser — the fast counterpart to pgAdmin.**
 
-Built with Tauri 2 + React 19 + Tailwind 4, in the same native-glass style as
-Cumulus and Sentinel.
+Connect, click a table, and see your data instantly: filter, sort and page
+without writing SQL — with a full SQL editor and natural-language → SQL one tab away.
+
+[![Download](https://img.shields.io/github/v/release/benoneill66/strata?label=Download%20.dmg&style=for-the-badge&color=4fa8ff)](https://github.com/benoneill66/strata/releases/latest)
+&nbsp;
+![Platform](https://img.shields.io/badge/macOS-Intel%20%2B%20Apple%20Silicon-38d9c4?style=for-the-badge)
+
+<img src="docs/browse.png" width="860" alt="Browsing a table in Strata" />
+
+</div>
+
+## Install
+
+**[⬇︎ Download the latest `.dmg`](https://github.com/benoneill66/strata/releases/latest)** — universal, runs on both Intel and Apple Silicon Macs.
+
+1. Open the `.dmg` and drag **Strata** into **Applications**.
+2. First launch only — the app isn't signed with an Apple Developer ID yet, so
+   clear the quarantine flag once:
+   ```sh
+   xattr -cr /Applications/Strata.app
+   ```
+   *(or right-click Strata → **Open** → **Open**).* After that, just double-click it.
 
 ## Features
 
-- **Connections** — saved profiles (host, user, database, SSL mode), one-click
-  connect with a built-in connection test. Multiple live connections at once.
-- **Browse** — schema/table tree with row estimates, instant data grid with
-  column sorting, stackable filters (contains/=/≠/ranges/null), exact counts
-  on demand, pagination, a structure tab (types, PKs, defaults) and a
+- **Connections** — saved profiles (host, user, database, SSL mode) live in a
+  persistent sidebar rail, shared across Browse and Query. One-click connect with
+  a built-in connection test; multiple live servers at once.
+- **Browse** — schema/table tree with row estimates, an instant data grid with
+  column sorting, stackable filters (contains / = / ≠ / ranges / null), exact
+  counts on demand, pagination, a structure tab (types, PKs, defaults) and a
   row-detail drawer with copy-as-JSON.
-- **Query** — SQL editor (⌘↩ to run) supporting multi-statement scripts,
-  result grid, elapsed/row chips, copy-as-CSV, and local query history.
-- **Ask AI** — type a question in plain English ("top 10 customers by revenue
-  this month") and Strata generates the SQL from your live schema, dropping it
-  into the editor and auto-running it when it's read-only. Powered by your local
-  Claude CLI sign-in — no API key. Write queries are inserted for review first.
-- **Native feel** — transparent vibrancy window, hidden title bar, dark glass
-  UI, no Electron.
+- **Query** — SQL editor (⌘↩ to run) for multi-statement scripts, result grid,
+  elapsed/row chips, copy-as-CSV, and local query history.
+- **Ask AI** — type a question in plain English and Strata writes the SQL from
+  your live schema, dropping it into the editor and auto-running read-only
+  queries. Powered by your local Claude CLI sign-in — no API key.
+- **Native feel** — transparent vibrancy window, hidden title bar, dark glass UI.
+  No Electron.
 
-## Run
+<div align="center">
+<img src="docs/query.png" width="820" alt="Asking a question in plain English" />
+</div>
+
+## Build from source
+
+Built with **Tauri 2 + React 19 + Tailwind 4**, talking to Postgres over
+tokio-postgres on the simple-query protocol. Uses [Bun](https://bun.sh).
 
 ```sh
 bun install
-bun run app           # dev, hot reload
+bun run app           # dev, hot reload (opens the window)
 bun run install-app   # release build → /Applications/Strata.app (this Mac)
+bun run dev           # browser-only UI against fictional demo data
 ```
 
-`bun run dev` serves the UI in a browser against fictional demo data — handy
-for UI iteration and screenshots.
-
-## Share it with someone else
-
-`bun run dist` builds a **universal** (Intel + Apple Silicon) disk image:
+### Package a universal DMG to share
 
 ```sh
 bun run dist
 # → dist-dmg/Strata_<version>_universal.dmg
 ```
 
-Send them that `.dmg`. They open it and drag **Strata** into Applications.
+This builds a universal (Intel + Apple Silicon) app and wraps it in a disk
+image with `hdiutil`. To drop the Gatekeeper step for recipients entirely, sign
+and notarize the build with an Apple Developer ID certificate.
 
-The build is **not signed with an Apple Developer ID**, so the first launch
-needs a one-time Gatekeeper bypass — either:
-
-- **Right-click** Strata in Applications → **Open** → **Open** in the dialog, or
-- run once in Terminal: `xattr -cr /Applications/Strata.app`
-
-After that it opens normally. To drop this step entirely, sign + notarize the
-build with a Developer ID certificate.
-
-**AI SQL generation** needs the [Claude CLI](https://claude.com/claude-code)
-installed and signed in on their machine; without it the app works fully but
-the "Ask AI" bar is hidden.
+> **AI SQL** needs the [Claude CLI](https://claude.com/claude-code) installed and
+> signed in. Without it the app works fully — the *Ask AI* bar is just hidden.
 
 ## Storage
 
-Connection profiles (passwords included, plaintext like pgpass) and prefs are
-stored in `~/Library/Application Support/app.strata.desktop/settings.json`.
+Connection profiles (passwords included, plaintext like `pgpass`) and prefs live
+in `~/Library/Application Support/app.strata.desktop/settings.json`.

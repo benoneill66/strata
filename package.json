@@ -11,7 +11,8 @@
     "app": "tauri dev",
     "app:build": "tauri build",
     "install-app": "bun run tauri build --bundles app && rm -rf /Applications/Strata.app && cp -R src-tauri/target/release/bundle/macos/Strata.app /Applications/",
-    "dist": "bash scripts/make-dmg.sh"
+    "dist": "bash scripts/make-dmg.sh",
+    "screenshots": "node scripts/shoot.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -25,6 +26,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "puppeteer-core": "^25.1.0",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
