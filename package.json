@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build",
-    "install-app": "bun run tauri build --bundles app && rm -rf /Applications/Strata.app && cp -R src-tauri/target/release/bundle/macos/Strata.app /Applications/"
+    "install-app": "bun run tauri build --bundles app && rm -rf /Applications/Strata.app && cp -R src-tauri/target/release/bundle/macos/Strata.app /Applications/",
+    "dist": "bun run tauri build --target universal-apple-darwin --bundles dmg"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

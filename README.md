@@ -29,11 +29,35 @@ Cumulus and Sentinel.
 ```sh
 bun install
 bun run app           # dev, hot reload
-bun run install-app   # release build → /Applications/Strata.app
+bun run install-app   # release build → /Applications/Strata.app (this Mac)
 ```
 
 `bun run dev` serves the UI in a browser against fictional demo data — handy
 for UI iteration and screenshots.
+
+## Share it with someone else
+
+`bun run dist` builds a **universal** (Intel + Apple Silicon) disk image:
+
+```sh
+bun run dist
+# → src-tauri/target/universal-apple-darwin/release/bundle/dmg/Strata_<version>_universal.dmg
+```
+
+Send them that `.dmg`. They open it and drag **Strata** into Applications.
+
+The build is **not signed with an Apple Developer ID**, so the first launch
+needs a one-time Gatekeeper bypass — either:
+
+- **Right-click** Strata in Applications → **Open** → **Open** in the dialog, or
+- run once in Terminal: `xattr -cr /Applications/Strata.app`
+
+After that it opens normally. To drop this step entirely, sign + notarize the
+build with a Developer ID certificate.
+
+**AI SQL generation** needs the [Claude CLI](https://claude.com/claude-code)
+installed and signed in on their machine; without it the app works fully but
+the "Ask AI" bar is hidden.
 
 ## Storage
 
