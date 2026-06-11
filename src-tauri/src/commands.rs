@@ -30,6 +30,20 @@ fn cell(row: &[Option<String>], i: usize) -> String {
     row.get(i).cloned().flatten().unwrap_or_default()
 }
 
+fn quote_ident_if_needed(name: &str) -> String {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return "\"\"".to_string();
+    };
+    let simple_start = first == '_' || first.is_ascii_lowercase();
+    let simple_rest = chars.all(|c| c == '_' || c == '$' || c.is_ascii_lowercase() || c.is_ascii_digit());
+    if simple_start && simple_rest {
+        name.to_string()
+    } else {
+        format!("\"{}\"", name.replace('"', "\"\""))
+    }
+}
+
 async fn client_for(state: &State<'_, AppState>, id: &str) -> R<Arc<Client>> {
     state
         .pool
@@ -662,7 +676,8 @@ pub async fn diagnose_plan(state: State<'_, AppState>, sql: String, plan: String
 
 /// Compact schema dump for the AI prompt: one `schema.table(col type, …)` line
 /// per relation across user schemas, capped so the prompt stays bounded on huge
-/// databases. A trailing note records truncation.
+/// databases. Identifiers that PostgreSQL would fold or reject unquoted are
+/// rendered with quotes so the model can copy exact casing.
 async fn schema_context(client: &tokio_postgres::Client) -> R<(String, bool)> {
     const MAX_CHARS: usize = 24_000;
     let sql = format!(
@@ -693,13 +708,17 @@ async fn schema_context(client: &tokio_postgres::Client) -> R<(String, bool)> {
         out.push_str(&line);
     };
     for r in &res.rows {
-        let key = format!("{}.{}", cell(r, 0), cell(r, 1));
+        let key = format!(
+            "{}.{}",
+            quote_ident_if_needed(&cell(r, 0)),
+            quote_ident_if_needed(&cell(r, 1))
+        );
         if key != cur {
             flush(&mut out, &cur, &cols, &mut truncated);
             cur = key;
             cols.clear();
         }
-        cols.push(format!("{} {}", cell(r, 2), cell(r, 3)));
+        cols.push(format!("{} {}", quote_ident_if_needed(&cell(r, 2)), cell(r, 3)));
     }
     flush(&mut out, &cur, &cols, &mut truncated);
     if out.is_empty() {
@@ -743,4 +762,18 @@ pub async fn generate_sql(state: State<'_, AppState>, id: String, question: Stri
         ctx.push_str("… (schema truncated; ask about a specific table if your target is missing)\n");
     }
     ai::generate_sql(provider, &version, &db, &ctx, &question).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_ident_if_needed;
+
+    #[test]
+    fn quotes_identifiers_that_postgres_would_fold() {
+        assert_eq!(quote_ident_if_needed("created_at"), "created_at");
+        assert_eq!(quote_ident_if_needed("dateOfBirth"), "\"dateOfBirth\"");
+        assert_eq!(quote_ident_if_needed("User"), "\"User\"");
+        assert_eq!(quote_ident_if_needed("display name"), "\"display name\"");
+        assert_eq!(quote_ident_if_needed("has\"quote"), "\"has\"\"quote\"");
+    }
 }

@@ -65,6 +65,42 @@ async fn generates_select_from_tiny_schema() {
     assert!(!lower.contains("customers"), "referenced a table not in schema: {}", s.sql);
 }
 
+#[tokio::test]
+async fn quotes_mixed_case_identifiers() {
+    if std::env::var("STRATA_TEST_AI").ok().as_deref() != Some("1") {
+        eprintln!("skipping: set STRATA_TEST_AI=1 to run the live AI call");
+        return;
+    }
+    let provider = test_provider();
+    let (available, _) = ai::cli_status(provider);
+    if !available {
+        eprintln!("skipping: {} CLI not found", provider_name(provider));
+        return;
+    }
+
+    let schema = "public.\"User\"(id uuid, \"createdAt\" timestamptz, \"dateOfBirth\" date)\n";
+    let s = ai::generate_sql(
+        provider,
+        "16.0",
+        "shop",
+        schema,
+        "count users by age who signed up this week",
+    )
+    .await
+    .expect("generate_sql failed");
+
+    eprintln!("SQL: {}", s.sql);
+    eprintln!("WHY: {}", s.explanation);
+    assert!(s.sql.contains("public.\"User\""), "expected quoted table name: {}", s.sql);
+    assert!(s.sql.contains("\"createdAt\""), "expected quoted createdAt: {}", s.sql);
+    assert!(s.sql.contains("\"dateOfBirth\""), "expected quoted dateOfBirth: {}", s.sql);
+    assert!(
+        !s.sql.contains(".createdAt") && !s.sql.contains(".dateOfBirth"),
+        "found unquoted mixed-case column reference: {}",
+        s.sql
+    );
+}
+
 /// Full pipeline against a real local database (set STRATA_TEST_AI_DB to the
 /// dbname, e.g. STRATA_TEST_AI=1 STRATA_TEST_AI_DB=edge). Connects, dumps the
 /// real public schema, and generates SQL — exactly what the app's command does.

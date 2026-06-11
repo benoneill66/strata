@@ -359,7 +359,9 @@ pub async fn generate_sql(
          write exactly ONE PostgreSQL query that answers it.\n\
          Rules:\n\
          - Target PostgreSQL {pg_version}. Use ONLY tables and columns that appear in the schema below; never invent names.\n\
-         - Schema-qualify tables (e.g. public.users) when helpful. Quote identifiers only if they need it.\n\
+         - Copy table and column identifiers exactly as shown in the schema. If an identifier is shown in double quotes, keep those quotes every time you reference it.\n\
+         - PostgreSQL folds unquoted mixed-case names to lowercase, so camelCase/PascalCase identifiers like \"dateOfBirth\" or \"User\" MUST be double-quoted, including after aliases (e.g. u.\"dateOfBirth\").\n\
+         - Schema-qualify tables (e.g. public.users or public.\"User\") when helpful. Quote identifiers only if they need it.\n\
          - Default to a read-only SELECT. Do NOT write INSERT/UPDATE/DELETE/DDL unless the question explicitly asks to modify data.\n\
          - For row-returning queries add a sensible LIMIT (<= 500) unless the question is an aggregate/count.\n\
          - Prefer clear, correct SQL over clever SQL. Use ILIKE for case-insensitive text matching.\n\
