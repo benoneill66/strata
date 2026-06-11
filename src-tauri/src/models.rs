@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// A saved Postgres connection. Stored (password included) in settings.json
-/// under the OS app-data dir — same plaintext-JSON approach as Sentinel's
-/// integration credentials; the file is user-owned and not world-readable.
+/// A saved Postgres connection. Profile fields persist to settings.json under
+/// the OS app-data dir; the password lives in the macOS Keychain (see
+/// `secrets`) and is blank in the file — it's hydrated at startup and carried
+/// in memory only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub id: String,
@@ -10,6 +11,7 @@ pub struct ConnectionProfile {
     pub host: String,
     pub port: u16,
     pub user: String,
+    #[serde(default)]
     pub password: String,
     pub database: String,
     /// prefer | require | disable

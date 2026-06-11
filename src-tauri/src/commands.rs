@@ -11,6 +11,7 @@ use crate::models::{
     GraphNode, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, TableInfo,
 };
 use crate::pg::{self, Pool};
+use crate::secrets;
 
 pub struct AppState {
     pub settings: RwLock<Settings>,
@@ -47,10 +48,29 @@ pub fn get_settings(state: State<AppState>) -> Settings {
 
 #[tauri::command]
 pub fn save_settings(state: State<AppState>, settings: Settings) -> R<()> {
+    // Passwords go to the Keychain; the entries of removed connections go too.
+    for c in &settings.connections {
+        secrets::set(&c.id, &c.password)?;
+    }
+    let removed: Vec<String> = state
+        .settings
+        .read()
+        .connections
+        .iter()
+        .filter(|old| !settings.connections.iter().any(|c| c.id == old.id))
+        .map(|old| old.id.clone())
+        .collect();
+    for id in removed {
+        secrets::delete(&id);
+    }
     {
         *state.settings.write() = settings.clone();
     }
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    let mut on_disk = settings;
+    for c in &mut on_disk.connections {
+        c.password.clear();
+    }
+    let json = serde_json::to_string_pretty(&on_disk).map_err(|e| e.to_string())?;
     std::fs::write(&state.settings_path, json).map_err(|e| e.to_string())
 }
 

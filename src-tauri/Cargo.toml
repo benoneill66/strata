@@ -23,6 +23,7 @@ postgres-native-tls = "0.5"
 native-tls = "0.2"
 parking_lot = "0.12"
 window-vibrancy = "0.5"
+keyring = { version = "3", features = ["apple-native"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

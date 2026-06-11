@@ -2,6 +2,7 @@ pub mod ai;
 mod commands;
 pub mod models;
 pub mod pg;
+pub mod secrets;
 
 use commands::AppState;
 use models::Settings;
@@ -20,10 +21,32 @@ pub fn run() {
             let dir = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&dir).ok();
             let settings_path = dir.join("settings.json");
-            let settings = std::fs::read_to_string(&settings_path)
+            let mut settings = std::fs::read_to_string(&settings_path)
                 .ok()
                 .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
                 .unwrap_or_default();
+            // Hydrate passwords from the Keychain. A non-empty password in the
+            // file is a pre-Keychain install: move it over and rewrite the
+            // file stripped, one-time migration.
+            let mut migrate = false;
+            for c in &mut settings.connections {
+                if c.password.is_empty() {
+                    if let Some(pw) = secrets::get(&c.id) {
+                        c.password = pw;
+                    }
+                } else if secrets::set(&c.id, &c.password).is_ok() {
+                    migrate = true;
+                }
+            }
+            if migrate {
+                let mut on_disk = settings.clone();
+                for c in &mut on_disk.connections {
+                    c.password.clear();
+                }
+                if let Ok(json) = serde_json::to_string_pretty(&on_disk) {
+                    let _ = std::fs::write(&settings_path, json);
+                }
+            }
             app.manage(AppState {
                 settings: RwLock::new(settings),
                 settings_path,

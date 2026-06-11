@@ -63,7 +63,7 @@ export function Settings({
           <span className="k">App</span><span className="v">Strata 1.0.0 — native Postgres browser</span>
           <span className="k">Mode</span><span className="v">{IS_TAURI ? "Native (Tauri)" : "Browser demo — fictional data"}</span>
           <span className="k">Storage</span><span className="v mono" style={{ fontSize: 12 }}>~/Library/Application Support/app.strata.desktop/settings.json</span>
-          <span className="k">Note</span><span className="v" style={{ color: "var(--muted)" }}>Connection passwords are stored in plaintext in that file (user-only permissions), like pgpass.</span>
+          <span className="k">Note</span><span className="v" style={{ color: "var(--muted)" }}>Connection passwords are stored securely in the macOS Keychain, not in that file.</span>
         </div>
       </div>
     </div>

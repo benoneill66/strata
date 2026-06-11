@@ -24,9 +24,13 @@ exactly one row or the whole batch rolls back; single-row deletes go through
 `pg::exec_expect` with the same exactly-one guard.
 
 Live connections are held in `pg::Pool` (HashMap of `tokio_postgres::Client`
-keyed by profile id) managed in `AppState`. Saved connection profiles —
-including passwords, plaintext like pgpass — persist to `settings.json` in the
-app-data dir via `get_settings`/`save_settings`.
+keyed by profile id) managed in `AppState`. Saved connection profiles persist
+to `settings.json` in the app-data dir via `get_settings`/`save_settings`;
+passwords are kept out of the file — they live in the macOS Keychain
+(`src-tauri/src/secrets.rs`, one entry per profile id under the "Strata"
+service), are hydrated into the in-memory `Settings` at startup, and any
+plaintext password found in an old `settings.json` is migrated to the Keychain
+on first launch.
 
 Every Tauri command in `src-tauri/src/commands.rs` shapes results into the
 structs in `models.rs`, which mirror the TypeScript types in
