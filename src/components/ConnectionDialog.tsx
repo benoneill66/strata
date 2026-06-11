@@ -67,7 +67,7 @@ export function ConnectionDialog({
         {field("Host", <input className="input" value={p.host} onChange={(e) => set({ host: e.target.value })} />)}
         {field("Port", <input className="input mono" type="number" value={p.port} onChange={(e) => set({ port: Number(e.target.value) || 5432 })} />)}
         {field("User", <input className="input" value={p.user} onChange={(e) => set({ user: e.target.value })} />)}
-        {field("Password", <input className="input" type="password" value={p.password} onChange={(e) => set({ password: e.target.value })} />)}
+        {field("Password", <input className="input" type="password" placeholder={isNew ? "" : "Leave blank to keep saved password"} value={p.password} onChange={(e) => set({ password: e.target.value })} />)}
         {field("Database", <input className="input" value={p.database} onChange={(e) => set({ database: e.target.value })} />)}
         {field("SSL", (
           <div className="seg" style={{ width: "100%" }}>

@@ -109,5 +109,6 @@ If Strata saves you time, you can buy me a coffee — it keeps the releases comi
 
 ## Storage
 
-Connection profiles (passwords included, plaintext like `pgpass`) and prefs live
-in `~/Library/Application Support/app.strata.desktop/settings.json`.
+Connection profile metadata and prefs live in
+`~/Library/Application Support/app.strata.desktop/settings.json`. Passwords are
+stored separately in the macOS Keychain under the `Strata` service.

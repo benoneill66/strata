@@ -27,25 +27,19 @@ pub fn run() {
                 .ok()
                 .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
                 .unwrap_or_default();
-            // Hydrate passwords from the Keychain. A non-empty password in the
-            // file is a pre-Keychain install: move it over and rewrite the
-            // file stripped, one-time migration.
+            // A non-empty password in the file is a pre-Keychain install:
+            // move it over and rewrite the file stripped, one-time migration.
+            // Do not hydrate every Keychain entry at launch; macOS prompts per
+            // item and can make startup look like an authentication loop.
             let mut migrate = false;
             for c in &mut settings.connections {
-                if c.password.is_empty() {
-                    if let Some(pw) = secrets::get(&c.id) {
-                        c.password = pw;
-                    }
-                } else if secrets::set(&c.id, &c.password).is_ok() {
+                if !c.password.is_empty() && secrets::set(&c.id, &c.password).is_ok() {
+                    c.password.clear();
                     migrate = true;
                 }
             }
             if migrate {
-                let mut on_disk = settings.clone();
-                for c in &mut on_disk.connections {
-                    c.password.clear();
-                }
-                if let Ok(json) = serde_json::to_string_pretty(&on_disk) {
+                if let Ok(json) = serde_json::to_string_pretty(&settings) {
                     let _ = std::fs::write(&settings_path, json);
                 }
             }

@@ -43,16 +43,35 @@ async fn client_for(state: &State<'_, AppState>, id: &str) -> R<Arc<Client>> {
 
 // ---------- settings ----------
 
+fn strip_passwords(mut settings: Settings) -> Settings {
+    for c in &mut settings.connections {
+        c.password.clear();
+    }
+    settings
+}
+
+fn hydrate_password(profile: &mut ConnectionProfile) {
+    if profile.password.is_empty() {
+        if let Some(password) = secrets::get(&profile.id) {
+            profile.password = password;
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.read().clone()
+    strip_passwords(state.settings.read().clone())
 }
 
 #[tauri::command]
 pub fn save_settings(state: State<AppState>, settings: Settings) -> R<()> {
-    // Passwords go to the Keychain; the entries of removed connections go too.
+    // Non-empty passwords go to the Keychain. Empty passwords mean "leave any
+    // existing secret alone" because saved profiles are normally passwordless
+    // in memory and on disk.
     for c in &settings.connections {
-        secrets::set(&c.id, &c.password)?;
+        if !c.password.is_empty() {
+            secrets::set(&c.id, &c.password)?;
+        }
     }
     let removed: Vec<String> = state
         .settings
@@ -65,12 +84,9 @@ pub fn save_settings(state: State<AppState>, settings: Settings) -> R<()> {
     for id in removed {
         secrets::delete(&id);
     }
+    let on_disk = strip_passwords(settings);
     {
-        *state.settings.write() = settings.clone();
-    }
-    let mut on_disk = settings;
-    for c in &mut on_disk.connections {
-        c.password.clear();
+        *state.settings.write() = on_disk.clone();
     }
     let json = serde_json::to_string_pretty(&on_disk).map_err(|e| e.to_string())?;
     std::fs::write(&state.settings_path, json).map_err(|e| e.to_string())
@@ -79,7 +95,16 @@ pub fn save_settings(state: State<AppState>, settings: Settings) -> R<()> {
 // ---------- connection lifecycle ----------
 
 #[tauri::command]
-pub async fn test_connection(profile: ConnectionProfile) -> R<String> {
+pub async fn test_connection(state: State<'_, AppState>, mut profile: ConnectionProfile) -> R<String> {
+    if state
+        .settings
+        .read()
+        .connections
+        .iter()
+        .any(|c| c.id == profile.id)
+    {
+        hydrate_password(&mut profile);
+    }
     let client = pg::open(&profile).await?;
     let res = pg::simple(&client, "SELECT version()", 1).await?;
     Ok(res
@@ -90,14 +115,16 @@ pub async fn test_connection(profile: ConnectionProfile) -> R<String> {
 }
 
 fn profile_for(state: &State<'_, AppState>, id: &str) -> R<ConnectionProfile> {
-    state
+    let mut profile = state
         .settings
         .read()
         .connections
         .iter()
         .find(|c| c.id == id)
         .cloned()
-        .ok_or_else(|| "connection not found".to_string())
+        .ok_or_else(|| "connection not found".to_string())?;
+    hydrate_password(&mut profile);
+    Ok(profile)
 }
 
 /// Open a client and read its identity in one round-trip. The caller pools it.

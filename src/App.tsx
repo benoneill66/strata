@@ -10,6 +10,13 @@ import { Schema } from "./views/Schema";
 import { Query } from "./views/Query";
 import { Settings } from "./views/Settings";
 
+function stripPasswords(settings: SettingsType): SettingsType {
+  return {
+    ...settings,
+    connections: settings.connections.map((c) => ({ ...c, password: "" })),
+  };
+}
+
 export default function App() {
   const [view, setView] = useState<ViewId>("browse");
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -55,8 +62,8 @@ export default function App() {
   }, []);
 
   const saveSettings = useCallback(async (s: SettingsType) => {
-    setSettings(s);
     await api.saveSettings(s);
+    setSettings(stripPasswords(s));
   }, []);
 
   const connect = useCallback(async (id: string) => {

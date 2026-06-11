@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 /// A saved Postgres connection. Profile fields persist to settings.json under
 /// the OS app-data dir; the password lives in the macOS Keychain (see
-/// `secrets`) and is blank in the file — it's hydrated at startup and carried
-/// in memory only.
+/// `secrets`) and is blank in the file. The backend fetches it lazily when a
+/// connection needs it, avoiding a Keychain prompt for every saved profile at
+/// startup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub id: String,
