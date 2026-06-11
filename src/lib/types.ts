@@ -103,6 +103,80 @@ export interface TableRelations {
   incoming: FkRef[]; // FKs on other tables → child rows
 }
 
+export interface MonitorOverview {
+  database: string;
+  server_version: string;
+  size_bytes: number;
+  uptime_seconds: number;
+  max_connections: number;
+  total_connections: number;
+  active_connections: number;
+  idle_in_transaction: number;
+  waiting_connections: number;
+  xact_commit: number;
+  xact_rollback: number;
+  blks_read: number;
+  blks_hit: number;
+  cache_hit_pct: number;
+  deadlocks: number;
+  temp_bytes: number;
+  stats_reset: string | null;
+}
+
+export interface MonitorActivity {
+  pid: number;
+  user: string;
+  application: string;
+  client: string;
+  state: string;
+  wait: string;
+  duration_seconds: number;
+  query: string;
+}
+
+export interface MonitorLock {
+  blocked_pid: number;
+  blocked_user: string;
+  blocking_pid: number;
+  locktype: string;
+  mode: string;
+  relation: string;
+  duration_seconds: number;
+  blocked_query: string;
+  blocking_query: string;
+}
+
+export interface MonitorTableHealth {
+  schema: string;
+  table: string;
+  size_bytes: number;
+  live_rows: number;
+  dead_rows: number;
+  seq_scan: number;
+  idx_scan: number;
+  last_vacuum: string | null;
+  last_analyze: string | null;
+}
+
+export interface MonitorStatement {
+  query: string;
+  calls: number;
+  total_ms: number;
+  mean_ms: number;
+  rows: number;
+}
+
+export interface MonitorSnapshot {
+  sampled_at_ms: number;
+  overview: MonitorOverview;
+  activity: MonitorActivity[];
+  locks: MonitorLock[];
+  tables: MonitorTableHealth[];
+  statements_available: boolean;
+  statements_error: string | null;
+  statements: MonitorStatement[];
+}
+
 export interface GraphColumn {
   name: string;
   data_type: string;

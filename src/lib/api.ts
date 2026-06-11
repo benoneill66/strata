@@ -1,4 +1,4 @@
-import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
+import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, MonitorSnapshot, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -66,6 +66,9 @@ export const api = {
 
   tableRelations: (id: string, schema: string, table: string): Promise<TableRelations> =>
     IS_TAURI ? invoke("table_relations", { id, schema, table }) : demo.wait(demo.demoRelations(schema, table), 150),
+
+  monitorSnapshot: (id: string): Promise<MonitorSnapshot> =>
+    IS_TAURI ? invoke("monitor_snapshot", { id }) : demo.wait(demo.demoMonitor(), 180),
 
   tableRows: (
     id: string,

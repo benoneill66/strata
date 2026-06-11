@@ -189,6 +189,88 @@ pub struct TableRelations {
     pub incoming: Vec<FkRef>,
 }
 
+// ---------- monitor ----------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorOverview {
+    pub database: String,
+    pub server_version: String,
+    pub size_bytes: i64,
+    pub uptime_seconds: i64,
+    pub max_connections: i64,
+    pub total_connections: i64,
+    pub active_connections: i64,
+    pub idle_in_transaction: i64,
+    pub waiting_connections: i64,
+    pub xact_commit: i64,
+    pub xact_rollback: i64,
+    pub blks_read: i64,
+    pub blks_hit: i64,
+    pub cache_hit_pct: f64,
+    pub deadlocks: i64,
+    pub temp_bytes: i64,
+    pub stats_reset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorActivity {
+    pub pid: i64,
+    pub user: String,
+    pub application: String,
+    pub client: String,
+    pub state: String,
+    pub wait: String,
+    pub duration_seconds: i64,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorLock {
+    pub blocked_pid: i64,
+    pub blocked_user: String,
+    pub blocking_pid: i64,
+    pub locktype: String,
+    pub mode: String,
+    pub relation: String,
+    pub duration_seconds: i64,
+    pub blocked_query: String,
+    pub blocking_query: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorTableHealth {
+    pub schema: String,
+    pub table: String,
+    pub size_bytes: i64,
+    pub live_rows: i64,
+    pub dead_rows: i64,
+    pub seq_scan: i64,
+    pub idx_scan: i64,
+    pub last_vacuum: Option<String>,
+    pub last_analyze: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorStatement {
+    pub query: String,
+    pub calls: i64,
+    pub total_ms: f64,
+    pub mean_ms: f64,
+    pub rows: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorSnapshot {
+    pub sampled_at_ms: u64,
+    pub overview: MonitorOverview,
+    pub activity: Vec<MonitorActivity>,
+    pub locks: Vec<MonitorLock>,
+    pub tables: Vec<MonitorTableHealth>,
+    pub statements_available: bool,
+    pub statements_error: Option<String>,
+    pub statements: Vec<MonitorStatement>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct QueryResult {
     pub columns: Vec<String>,

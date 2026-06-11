@@ -8,6 +8,7 @@ import { Toaster, toast } from "./components/ui";
 import { Browse } from "./views/Browse";
 import { Schema } from "./views/Schema";
 import { Query } from "./views/Query";
+import { Monitor } from "./views/Monitor";
 import { Settings } from "./views/Settings";
 
 function stripPasswords(settings: SettingsType): SettingsType {
@@ -196,6 +197,16 @@ export default function App() {
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}
               seedSql={seedSql}
+            />
+          </div>
+          <div style={{ display: view === "monitor" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <Monitor
+              connId={activeId && activeInfo ? activeId : null}
+              database={activeInfo?.database ?? null}
+              hasConnections={hasConnections}
+              active={view === "monitor"}
+              onNew={newConnection}
+              onSwitchDatabase={switchDatabase}
             />
           </div>
           <div style={{ display: view === "settings" ? "block" : "none", overflowY: "auto", flex: 1, minHeight: 0 }}>

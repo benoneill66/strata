@@ -156,6 +156,7 @@ export function CommandPalette({
       { id: "browse", label: "Go to Browse", icon: <Icon.table w={13} /> },
       { id: "schema", label: "Go to Schema", icon: <Icon.graph w={13} /> },
       { id: "query", label: "Go to Query", icon: <Icon.terminal w={13} /> },
+      { id: "monitor", label: "Go to Monitor", icon: <Icon.chart w={13} /> },
       { id: "settings", label: "Go to Settings", icon: <Icon.settings w={13} /> },
     ];
     for (const v of views) {

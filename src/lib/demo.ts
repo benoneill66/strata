@@ -1,7 +1,7 @@
 // Fictional data for browser dev (bun run dev) — lets the UI render without
 // the Tauri backend or a real database, and keeps screenshots clean.
 
-import type { ColumnInfo, ConnectionProfile, Filter, FkRef, GraphNode, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo, TableRelations } from "./types";
+import type { ColumnInfo, ConnectionProfile, Filter, FkRef, GraphNode, MonitorSnapshot, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo, TableRelations } from "./types";
 
 export const demoConnections: ConnectionProfile[] = [
   {
@@ -225,6 +225,79 @@ export function demoSuggestion(question: string) {
   return {
     sql: `-- ${question}\nSELECT plan, count(*) AS users, sum(mrr_cents) / 100.0 AS mrr\nFROM public.users\nGROUP BY plan\nORDER BY mrr DESC\nLIMIT 500;`,
     explanation: "Counts users and sums MRR per plan, highest revenue first.",
+  };
+}
+
+export function demoMonitor(): MonitorSnapshot {
+  const t = Date.now();
+  const wobble = Math.floor((t / 5000) % 12);
+  return {
+    sampled_at_ms: t,
+    overview: {
+      database: "analytics",
+      server_version: "16.4",
+      size_bytes: 3_428_920_320,
+      uptime_seconds: 86400 * 12 + 3912,
+      max_connections: 100,
+      total_connections: 18 + (wobble % 3),
+      active_connections: 3 + (wobble % 2),
+      idle_in_transaction: wobble % 5 === 0 ? 1 : 0,
+      waiting_connections: 0,
+      xact_commit: 4_812_331 + wobble * 41,
+      xact_rollback: 18_204 + wobble,
+      blks_read: 912_500,
+      blks_hit: 122_808_400 + wobble * 1500,
+      cache_hit_pct: 99.26,
+      deadlocks: 0,
+      temp_bytes: 641_728_512,
+      stats_reset: "2026-06-01 09:12:43+00",
+    },
+    activity: [
+      {
+        pid: 42120,
+        user: "app_ro",
+        application: "Strata",
+        client: "127.0.0.1",
+        state: "active",
+        wait: "",
+        duration_seconds: 2 + wobble,
+        query: "SELECT date_trunc('day', occurred_at), count(*) FROM public.events GROUP BY 1 ORDER BY 1 DESC",
+      },
+      {
+        pid: 42114,
+        user: "worker",
+        application: "sidekiq",
+        client: "10.0.2.18",
+        state: "idle",
+        wait: "Client: ClientRead",
+        duration_seconds: 48,
+        query: "COMMIT",
+      },
+      {
+        pid: 42103,
+        user: "postgres",
+        application: "psql",
+        client: "127.0.0.1",
+        state: "idle in transaction",
+        wait: "Client: ClientRead",
+        duration_seconds: 312,
+        query: "UPDATE subscriptions SET plan = 'team' WHERE id = $1",
+      },
+    ],
+    locks: [],
+    tables: [
+      { schema: "public", table: "events", size_bytes: 2_147_483_648, live_rows: 8_120_441, dead_rows: 129_310, seq_scan: 491, idx_scan: 2_812_004, last_vacuum: "2026-06-11 02:04:12+00", last_analyze: "2026-06-11 06:19:53+00" },
+      { schema: "public", table: "orders", size_bytes: 148_897_792, live_rows: 391_207, dead_rows: 4_218, seq_scan: 89, idx_scan: 881_042, last_vacuum: "2026-06-11 01:20:40+00", last_analyze: "2026-06-11 05:40:07+00" },
+      { schema: "public", table: "users", size_bytes: 18_874_368, live_rows: 48_211, dead_rows: 203, seq_scan: 31, idx_scan: 109_804, last_vacuum: "2026-06-10 23:05:11+00", last_analyze: "2026-06-11 04:02:31+00" },
+      { schema: "auth", table: "sessions", size_bytes: 9_437_184, live_rows: 18_733, dead_rows: 2_104, seq_scan: 22, idx_scan: 55_019, last_vacuum: "2026-06-11 03:42:02+00", last_analyze: "2026-06-11 03:44:16+00" },
+    ],
+    statements_available: true,
+    statements_error: null,
+    statements: [
+      { query: "SELECT * FROM public.orders WHERE status = $1 ORDER BY created_at DESC LIMIT $2", calls: 1284, total_ms: 48291.4, mean_ms: 37.61, rows: 128400 },
+      { query: "INSERT INTO public.events (user_id, name, props, occurred_at) VALUES ($1, $2, $3, now())", calls: 91822, total_ms: 33981.9, mean_ms: 0.37, rows: 91822 },
+      { query: "SELECT count(*) FROM public.users WHERE plan = $1", calls: 342, total_ms: 18412.2, mean_ms: 53.84, rows: 342 },
+    ],
   };
 }
 

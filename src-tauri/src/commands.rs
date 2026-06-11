@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use tauri::State;
@@ -9,8 +10,9 @@ use crate::ai::{self, SqlSuggestion};
 use crate::export;
 use crate::models::{
     AiProvider, AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, FkRef, GraphColumn,
-    GraphEdge, GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo,
-    Settings, TableInfo, TableRelations,
+    GraphEdge, GraphNode, MonitorActivity, MonitorLock, MonitorOverview, MonitorSnapshot,
+    MonitorStatement, MonitorTableHealth, QualifiedTable, QueryResult, RowUpdate, SchemaGraph,
+    SchemaInfo, Settings, TableInfo, TableRelations,
 };
 use crate::pg::{self, Pool};
 use crate::secrets;
@@ -28,6 +30,25 @@ const HIDDEN_SCHEMAS: &str =
 
 fn cell(row: &[Option<String>], i: usize) -> String {
     row.get(i).cloned().flatten().unwrap_or_default()
+}
+
+fn opt_cell(row: &[Option<String>], i: usize) -> Option<String> {
+    row.get(i).cloned().flatten()
+}
+
+fn i64_cell(row: &[Option<String>], i: usize) -> i64 {
+    cell(row, i).parse().unwrap_or(0)
+}
+
+fn f64_cell(row: &[Option<String>], i: usize) -> f64 {
+    cell(row, i).parse().unwrap_or(0.0)
+}
+
+fn sampled_at_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn quote_ident_if_needed(name: &str) -> String {
@@ -482,6 +503,194 @@ pub async fn table_relations(
         .collect();
 
     Ok(TableRelations { outgoing, incoming })
+}
+
+// ---------- monitor ----------
+
+#[tauri::command]
+pub async fn monitor_snapshot(state: State<'_, AppState>, id: String) -> R<MonitorSnapshot> {
+    let client = client_for(&state, &id).await?;
+
+    let overview_sql = "\
+        SELECT current_database(), current_setting('server_version'), pg_database_size(current_database()), \
+               EXTRACT(EPOCH FROM now() - pg_postmaster_start_time())::bigint, \
+               current_setting('max_connections')::bigint, \
+               (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()), \
+               (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'active'), \
+               (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'idle in transaction'), \
+               (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type IS NOT NULL), \
+               COALESCE(d.xact_commit, 0), COALESCE(d.xact_rollback, 0), \
+               COALESCE(d.blks_read, 0), COALESCE(d.blks_hit, 0), \
+               CASE WHEN COALESCE(d.blks_hit, 0) + COALESCE(d.blks_read, 0) = 0 THEN 0 \
+                    ELSE round((d.blks_hit::numeric / (d.blks_hit + d.blks_read)) * 100, 2) END, \
+               COALESCE(d.deadlocks, 0), COALESCE(d.temp_bytes, 0), d.stats_reset::text \
+          FROM pg_stat_database d \
+         WHERE d.datname = current_database()";
+    let overview_res = pg::simple(&client, overview_sql, 1).await?;
+    let overview_row = overview_res.rows.first().ok_or("database stats unavailable")?;
+    let overview = MonitorOverview {
+        database: cell(overview_row, 0),
+        server_version: cell(overview_row, 1),
+        size_bytes: i64_cell(overview_row, 2),
+        uptime_seconds: i64_cell(overview_row, 3),
+        max_connections: i64_cell(overview_row, 4),
+        total_connections: i64_cell(overview_row, 5),
+        active_connections: i64_cell(overview_row, 6),
+        idle_in_transaction: i64_cell(overview_row, 7),
+        waiting_connections: i64_cell(overview_row, 8),
+        xact_commit: i64_cell(overview_row, 9),
+        xact_rollback: i64_cell(overview_row, 10),
+        blks_read: i64_cell(overview_row, 11),
+        blks_hit: i64_cell(overview_row, 12),
+        cache_hit_pct: f64_cell(overview_row, 13),
+        deadlocks: i64_cell(overview_row, 14),
+        temp_bytes: i64_cell(overview_row, 15),
+        stats_reset: opt_cell(overview_row, 16),
+    };
+
+    let activity_sql = "\
+        SELECT pid::bigint, usename, COALESCE(application_name, ''), COALESCE(client_addr::text, ''), \
+               COALESCE(state, ''), COALESCE(wait_event_type || ': ' || wait_event, ''), \
+               COALESCE(EXTRACT(EPOCH FROM now() - COALESCE(query_start, state_change))::bigint, 0), \
+               left(COALESCE(query, ''), 700) \
+          FROM pg_stat_activity \
+         WHERE datname = current_database() AND pid <> pg_backend_pid() \
+         ORDER BY CASE WHEN state = 'active' THEN 0 ELSE 1 END, query_start NULLS LAST \
+         LIMIT 50";
+    let activity_res = pg::simple(&client, activity_sql, 50).await?;
+    let activity = activity_res
+        .rows
+        .iter()
+        .map(|r| MonitorActivity {
+            pid: i64_cell(r, 0),
+            user: cell(r, 1),
+            application: cell(r, 2),
+            client: cell(r, 3),
+            state: cell(r, 4),
+            wait: cell(r, 5),
+            duration_seconds: i64_cell(r, 6),
+            query: cell(r, 7),
+        })
+        .collect();
+
+    let locks_sql = "\
+        SELECT blocked.pid::bigint, ba.usename, blocking.pid::bigint, blocked.locktype, blocked.mode, \
+               COALESCE(n.nspname || '.' || c.relname, ''), \
+               COALESCE(EXTRACT(EPOCH FROM now() - COALESCE(ba.query_start, ba.state_change))::bigint, 0), \
+               left(COALESCE(ba.query, ''), 700), left(COALESCE(blockinga.query, ''), 700) \
+          FROM pg_locks blocked \
+          JOIN pg_stat_activity ba ON ba.pid = blocked.pid \
+          JOIN pg_locks blocking ON blocking.locktype = blocked.locktype \
+               AND blocking.database IS NOT DISTINCT FROM blocked.database \
+               AND blocking.relation IS NOT DISTINCT FROM blocked.relation \
+               AND blocking.page IS NOT DISTINCT FROM blocked.page \
+               AND blocking.tuple IS NOT DISTINCT FROM blocked.tuple \
+               AND blocking.virtualxid IS NOT DISTINCT FROM blocked.virtualxid \
+               AND blocking.transactionid IS NOT DISTINCT FROM blocked.transactionid \
+               AND blocking.classid IS NOT DISTINCT FROM blocked.classid \
+               AND blocking.objid IS NOT DISTINCT FROM blocked.objid \
+               AND blocking.objsubid IS NOT DISTINCT FROM blocked.objsubid \
+               AND blocking.pid <> blocked.pid \
+          JOIN pg_stat_activity blockinga ON blockinga.pid = blocking.pid \
+          LEFT JOIN pg_class c ON c.oid = blocked.relation \
+          LEFT JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE NOT blocked.granted AND blocking.granted AND ba.datname = current_database() \
+         ORDER BY ba.query_start NULLS FIRST \
+         LIMIT 50";
+    let locks_res = pg::simple(&client, locks_sql, 50).await?;
+    let locks = locks_res
+        .rows
+        .iter()
+        .map(|r| MonitorLock {
+            blocked_pid: i64_cell(r, 0),
+            blocked_user: cell(r, 1),
+            blocking_pid: i64_cell(r, 2),
+            locktype: cell(r, 3),
+            mode: cell(r, 4),
+            relation: cell(r, 5),
+            duration_seconds: i64_cell(r, 6),
+            blocked_query: cell(r, 7),
+            blocking_query: cell(r, 8),
+        })
+        .collect();
+
+    let tables_sql = "\
+        SELECT schemaname, relname, pg_total_relation_size(format('%I.%I', schemaname, relname)::regclass), \
+               COALESCE(n_live_tup, 0), COALESCE(n_dead_tup, 0), COALESCE(seq_scan, 0), COALESCE(idx_scan, 0), \
+               COALESCE(last_autovacuum, last_vacuum)::text, COALESCE(last_autoanalyze, last_analyze)::text \
+          FROM pg_stat_user_tables \
+         ORDER BY pg_total_relation_size(format('%I.%I', schemaname, relname)::regclass) DESC \
+         LIMIT 20";
+    let tables_res = pg::simple(&client, tables_sql, 20).await?;
+    let tables = tables_res
+        .rows
+        .iter()
+        .map(|r| MonitorTableHealth {
+            schema: cell(r, 0),
+            table: cell(r, 1),
+            size_bytes: i64_cell(r, 2),
+            live_rows: i64_cell(r, 3),
+            dead_rows: i64_cell(r, 4),
+            seq_scan: i64_cell(r, 5),
+            idx_scan: i64_cell(r, 6),
+            last_vacuum: opt_cell(r, 7),
+            last_analyze: opt_cell(r, 8),
+        })
+        .collect();
+
+    let mut statements_available = false;
+    let mut statements_error = None;
+    let mut statements = Vec::new();
+    let statements_schema = pg::simple(
+        &client,
+        "SELECT n.nspname \
+           FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace \
+          WHERE e.extname = 'pg_stat_statements'",
+        1,
+    )
+        .await
+        .ok()
+        .and_then(|res| res.rows.first().and_then(|r| opt_cell(r, 0)));
+    if let Some(schema) = statements_schema {
+        let target = format!("{}.{}", pg::quote_ident(&schema), pg::quote_ident("pg_stat_statements"));
+        let statements_sql = format!(
+            "\
+            SELECT left(query, 700), calls::bigint, total_exec_time::double precision, \
+                   mean_exec_time::double precision, rows::bigint \
+              FROM {target} \
+             WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database()) \
+             ORDER BY total_exec_time DESC \
+             LIMIT 10"
+        );
+        match pg::simple(&client, &statements_sql, 10).await {
+            Ok(res) => {
+                statements_available = true;
+                statements = res
+                    .rows
+                    .iter()
+                    .map(|r| MonitorStatement {
+                        query: cell(r, 0),
+                        calls: i64_cell(r, 1),
+                        total_ms: f64_cell(r, 2),
+                        mean_ms: f64_cell(r, 3),
+                        rows: i64_cell(r, 4),
+                    })
+                    .collect();
+            }
+            Err(e) => statements_error = Some(e),
+        }
+    }
+
+    Ok(MonitorSnapshot {
+        sampled_at_ms: sampled_at_ms(),
+        overview,
+        activity,
+        locks,
+        tables,
+        statements_available,
+        statements_error,
+        statements,
+    })
 }
 
 // ---------- data ----------

@@ -3,12 +3,13 @@ import { startWindowDrag } from "../lib/api";
 import type { ConnectionProfile, DbInfo } from "../lib/types";
 import { ConnectionPicker } from "./ConnectionPicker";
 
-export type ViewId = "browse" | "schema" | "query" | "settings";
+export type ViewId = "browse" | "schema" | "query" | "monitor" | "settings";
 
 const NAV: { id: ViewId; label: string; icon: (p?: { w?: number }) => React.JSX.Element }[] = [
   { id: "browse", label: "Browse", icon: Icon.table },
   { id: "schema", label: "Schema", icon: Icon.graph },
   { id: "query", label: "Query", icon: Icon.terminal },
+  { id: "monitor", label: "Monitor", icon: Icon.chart },
 ];
 
 export function Sidebar({
