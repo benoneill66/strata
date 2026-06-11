@@ -84,6 +84,22 @@ export const FILTER_OPS: { id: FilterOp; label: string; needsValue: boolean }[] 
   { id: "notnull", label: "not null", needsValue: false },
 ];
 
+/** A foreign-key edge oriented for navigation (mirrors models.rs::FkRef). To
+    follow it, jump to other_schema.other_table and filter each other_columns[i]
+    to the current row's value at local_columns[i] — same shape both directions. */
+export interface FkRef {
+  constraint: string;
+  local_columns: string[];
+  other_schema: string;
+  other_table: string;
+  other_columns: string[];
+}
+
+export interface TableRelations {
+  outgoing: FkRef[]; // FKs on this table → parent rows
+  incoming: FkRef[]; // FKs on other tables → child rows
+}
+
 export interface GraphColumn {
   name: string;
   data_type: string;

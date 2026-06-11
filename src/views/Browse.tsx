@@ -5,7 +5,7 @@ import { useAsync } from "../lib/hooks";
 import { bytes, elapsed, estRows, num } from "../lib/format";
 import { Icon } from "../lib/icons";
 import { FILTER_OPS, TABLE_KINDS } from "../lib/types";
-import type { CellValue, ColumnInfo, Filter, FilterOp, RowUpdate } from "../lib/types";
+import type { CellValue, ColumnInfo, Filter, FilterOp, FkRef, RowUpdate } from "../lib/types";
 import type { ChartConfig } from "../lib/chart";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
@@ -20,6 +20,9 @@ type PendingEdit = { keys: CellValue[]; column: string; value: string | null };
 
 const pendingKey = (keys: CellValue[], column: string) =>
   `${JSON.stringify(keys.map((k) => [k.column, k.value]))}|${column}`;
+
+/** A browse location remembered on the FK-navigation back-stack. */
+type NavLoc = { schema: string; table: string; filters: Filter[]; sortCol: string | null; sortDesc: boolean };
 
 export function Browse({
   connId,
@@ -54,6 +57,9 @@ export function Browse({
   const [counting, setCounting] = useState(false);
   const [detail, setDetail] = useState<(string | null)[] | null>(null);
   const [inserting, setInserting] = useState(false);
+
+  // FK click-through pushes the prior location here so a Back button can return.
+  const [navStack, setNavStack] = useState<NavLoc[]>([]);
 
   // Rows as grid or chart — the chart shows the current page only.
   const [resultView, setResultView] = useState<"grid" | "chart">("grid");
@@ -97,6 +103,7 @@ export function Browse({
     setDetail(null);
     setInserting(false);
     setChart(null); // different column set — let chart defaults re-pick
+    setNavStack([]); // a manual pick starts a fresh trail
   }
 
   // ⌘K palette jump: select schema + table directly
@@ -109,6 +116,11 @@ export function Browse({
 
   const columns = useAsync(
     () => (connId && schema && table ? api.tableColumns(connId, schema, table) : Promise.resolve([])),
+    [connId, schema, table]
+  );
+
+  const relations = useAsync(
+    () => (connId && schema && table ? api.tableRelations(connId, schema, table) : Promise.resolve(null)),
     [connId, schema, table]
   );
 
@@ -275,6 +287,85 @@ export function Browse({
     rows.reload();
   }
 
+  // ---------- foreign-key navigation ----------
+
+  const fkColSet = useMemo(
+    () => new Set((relations.data?.outgoing ?? []).flatMap((f) => f.local_columns)),
+    [relations.data]
+  );
+
+  /** Reset all grid state to a location (used by FK jumps and Back). */
+  function applyLocation(loc: NavLoc) {
+    setSchema(loc.schema);
+    setTable(loc.table);
+    setTab("data");
+    setOffset(0);
+    setSortCol(loc.sortCol);
+    setSortDesc(loc.sortDesc);
+    setCount(null);
+    setDetail(null);
+    setInserting(false);
+    setChart(null);
+    setFilters(loc.filters);
+  }
+
+  function goToTable(toSchema: string, toTable: string, newFilters: Filter[]) {
+    if (schema && table) setNavStack((s) => [...s, { schema, table, filters, sortCol, sortDesc }]);
+    applyLocation({ schema: toSchema, table: toTable, filters: newFilters, sortCol: null, sortDesc: false });
+  }
+
+  function goBack() {
+    if (!navStack.length) return;
+    applyLocation(navStack[navStack.length - 1]);
+    setNavStack(navStack.slice(0, -1));
+  }
+
+  /** Map a displayed row back to its as-loaded values (staged edits aside). */
+  function origRow(row: (string | null)[]): (string | null)[] {
+    if (!rows.data || !displayed) return row;
+    const idx = displayed.result.rows.indexOf(row);
+    return idx >= 0 ? rows.data.rows[idx] : row;
+  }
+
+  /** Filters pinning the other table's columns to this row's FK values, or
+      null if any participating value is NULL (no row to follow). */
+  function fkFilters(fk: FkRef, row: (string | null)[], cols: string[]): Filter[] | null {
+    const out: Filter[] = [];
+    for (let i = 0; i < fk.local_columns.length; i++) {
+      const v = row[cols.indexOf(fk.local_columns[i])];
+      if (v === null || v === undefined) return null;
+      out.push({ column: fk.other_columns[i], op: "eq", value: v });
+    }
+    return out;
+  }
+
+  function followFk(fk: FkRef, row: (string | null)[]) {
+    if (!rows.data) return;
+    const f = fkFilters(fk, origRow(row), rows.data.columns);
+    if (!f) {
+      toast(`${fk.local_columns.join(", ")} is NULL — no referenced row`, "info");
+      return;
+    }
+    goToTable(fk.other_schema, fk.other_table, f);
+  }
+
+  function onGridFk(column: string, row: (string | null)[]) {
+    const fk = (relations.data?.outgoing ?? []).find((f) => f.local_columns.includes(column));
+    if (fk) followFk(fk, row);
+  }
+
+  /** Count of child rows behind an incoming FK, for the drawer's "Referenced by". */
+  async function incomingCount(fk: FkRef): Promise<number | null> {
+    if (!connId || !rows.data || !detail) return null;
+    const f = fkFilters(fk, origRow(detail), rows.data.columns);
+    if (!f) return 0;
+    try {
+      return await api.tableCount(connId, fk.other_schema, fk.other_table, f);
+    } catch {
+      return null;
+    }
+  }
+
   if (!connId) {
     return hasConnections ? (
       <Empty
@@ -358,6 +449,11 @@ export function Browse({
           <>
             {/* header */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              {navStack.length > 0 && (
+                <button className="btn btn-sm btn-ghost" onClick={goBack} title="Back to where you came from">
+                  <Icon.chevLeft w={13} /> Back
+                </button>
+              )}
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
                 <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }} className="mono">{schema}.{table}</span>
                 {tableInfo && (
@@ -434,6 +530,8 @@ export function Browse({
                     pkCols={pkCols}
                     onEditCell={canEditRows ? stageEdit : undefined}
                     dirtyCells={displayed.dirty}
+                    fkCols={fkColSet}
+                    onFkClick={onGridFk}
                   />
                 ))}
                 {rows.loading && rows.initial && (
@@ -495,6 +593,10 @@ export function Browse({
         <RowDrawer
           columns={rows.data.columns}
           row={detail}
+          outgoing={relations.data?.outgoing ?? []}
+          incoming={relations.data?.incoming ?? []}
+          onFollow={(fk) => followFk(fk, detail)}
+          countFor={incomingCount}
           onClose={() => setDetail(null)}
           onDelete={canEditRows ? () => deleteRow(detail) : undefined}
         />
@@ -621,22 +723,46 @@ function StructurePanel({ columns, loading }: { columns: { name: string; data_ty
 function RowDrawer({
   columns,
   row,
+  outgoing,
+  incoming,
+  onFollow,
+  countFor,
   onClose,
   onDelete,
 }: {
   columns: string[];
   row: (string | null)[];
+  outgoing: FkRef[];
+  incoming: FkRef[];
+  onFollow: (fk: FkRef) => void;
+  countFor: (fk: FkRef) => Promise<number | null>;
   onClose: () => void;
   onDelete?: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // child-row counts for the "Referenced by" section, keyed by constraint
+  const [counts, setCounts] = useState<Record<string, number | null>>({});
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Count children behind each incoming FK once, when the drawer opens.
+  useEffect(() => {
+    let live = true;
+    incoming.forEach((fk) => {
+      countFor(fk).then((n) => live && setCounts((c) => ({ ...c, [fk.constraint]: n })));
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // column → the outgoing FK it participates in, for per-field jump buttons
+  const fkByCol = new Map<string, FkRef>();
+  for (const fk of outgoing) for (const c of fk.local_columns) fkByCol.set(c, fk);
 
   const json = JSON.stringify(Object.fromEntries(columns.map((c, i) => [c, row[i]])), null, 2);
 
@@ -674,15 +800,61 @@ function RowDrawer({
         </div>
         <div style={{ overflowY: "auto", flex: 1, padding: "8px 20px 20px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {columns.map((c, i) => (
-              <div key={c} className="glass-card" style={{ padding: "10px 13px", borderRadius: 13 }}>
-                <div className="label" style={{ marginBottom: 5 }}>{c}</div>
-                <div className="mono" style={{ fontSize: 12.5, lineHeight: 1.5, wordBreak: "break-word", whiteSpace: "pre-wrap", color: row[i] === null ? "var(--muted)" : "var(--text)", fontStyle: row[i] === null ? "italic" : "normal", maxHeight: 220, overflowY: "auto" }}>
-                  {row[i] ?? "NULL"}
+            {columns.map((c, i) => {
+              const fk = fkByCol.get(c);
+              return (
+                <div key={c} className="glass-card" style={{ padding: "10px 13px", borderRadius: 13 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <span className="label">{c}</span>
+                    <div style={{ flex: 1 }} />
+                    {fk && row[i] !== null && (
+                      <button
+                        className="btn btn-ghost btn-sm fk-drawer-jump"
+                        title={`Go to ${fk.other_schema}.${fk.other_table}`}
+                        onClick={() => onFollow(fk)}
+                      >
+                        {fk.other_table} <span style={{ opacity: 0.8 }}>↗</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="mono" style={{ fontSize: 12.5, lineHeight: 1.5, wordBreak: "break-word", whiteSpace: "pre-wrap", color: row[i] === null ? "var(--muted)" : "var(--text)", fontStyle: row[i] === null ? "italic" : "normal", maxHeight: 220, overflowY: "auto" }}>
+                    {row[i] ?? "NULL"}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {incoming.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <div className="label" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon.link w={11} /> Referenced by
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {incoming.map((fk) => {
+                  const n = counts[fk.constraint];
+                  return (
+                    <button
+                      key={fk.constraint}
+                      className="glass-card fk-ref no-drag"
+                      style={{ padding: "10px 13px", borderRadius: 13, display: "flex", alignItems: "center", gap: 10, textAlign: "left", cursor: "default" }}
+                      onClick={() => onFollow(fk)}
+                      title={`Browse ${fk.other_schema}.${fk.other_table} where ${fk.other_columns.join(", ")} = this row`}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="mono" style={{ fontSize: 12.5, fontWeight: 650 }}>{fk.other_schema}.{fk.other_table}</div>
+                        <div className="mono" style={{ fontSize: 10.5, color: "var(--muted)" }}>via {fk.other_columns.join(", ")}</div>
+                      </div>
+                      <span className="chip mono" style={{ fontSize: 11 }}>
+                        {n === undefined ? <Spinner size={11} /> : n === null ? "—" : `${num(n)} row${n === 1 ? "" : "s"}`}
+                      </span>
+                      <span style={{ opacity: 0.7, display: "flex" }}><Icon.chevRight w={14} /></span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>,

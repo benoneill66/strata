@@ -1,4 +1,4 @@
-import { api, IS_TAURI } from "../lib/api";
+import { api, IS_TAURI, openExternal } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { Icon } from "../lib/icons";
 import type { Settings as SettingsType } from "../lib/types";
@@ -55,6 +55,22 @@ export function Settings({
         {ai.data?.available && ai.data.path !== "demo" && (
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>{ai.data.path}</div>
         )}
+      </div>
+
+      <div className="glass-card" style={{ padding: 18 }}>
+        <div className="label" style={{ marginBottom: 4 }}>Support Strata</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, color: "var(--muted)", flex: 1, minWidth: 200 }}>
+            Strata is free and built by one person. If it saves you time, you can chip in.
+          </div>
+          <button
+            className="btn"
+            onClick={() => openExternal("https://buymeacoffee.com/benoneill")}
+            style={{ background: "#FFDD00", color: "#1a1300", borderColor: "#e6c700", fontWeight: 640, whiteSpace: "nowrap" }}
+          >
+            <Icon.coffee w={15} /> Buy me a coffee
+          </button>
+        </div>
       </div>
 
       <div className="glass-card" style={{ padding: 18 }}>

@@ -360,6 +360,24 @@ body.no-native {
 }
 .cell-null-btn:hover { color: var(--text); border-color: rgba(79,168,255,0.5); }
 
+/* foreign-key click-through */
+.data-table td.cell-fk { color: var(--accent); position: relative; padding-right: 26px; }
+.fk-jump {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; display: grid; place-items: center;
+  border-radius: 6px; cursor: default; opacity: 0;
+  background: rgba(79,168,255,0.16); border: 1px solid rgba(79,168,255,0.4);
+  color: var(--accent); font-size: 11px; line-height: 1;
+  transition: opacity .12s ease, background .12s ease;
+}
+.data-table tbody tr:hover td.cell-fk .fk-jump { opacity: 1; }
+.fk-jump:hover { background: rgba(79,168,255,0.32); }
+/* drawer FK affordances */
+.fk-drawer-jump { color: var(--accent); font-size: 11px; padding: 3px 8px; }
+.fk-drawer-jump:hover { background: rgba(79,168,255,0.12); }
+.fk-ref { width: 100%; border: 1px solid var(--hair-soft); transition: border-color .12s ease, background .12s ease; }
+.fk-ref:hover { border-color: rgba(79,168,255,0.45); background: rgba(79,168,255,0.06); }
+
 /* ---------- ⌘K command palette ---------- */
 .palette {
   width: 580px; max-width: 92vw; padding: 0; overflow: hidden;

@@ -14,6 +14,8 @@ export function DataGrid({
   pkCols,
   onEditCell,
   dirtyCells,
+  fkCols,
+  onFkClick,
 }: {
   result: QueryResult;
   startIndex?: number;
@@ -26,6 +28,10 @@ export function DataGrid({
   onEditCell?: (rowIndex: number, colIndex: number, value: string | null) => void;
   /** "row:col" cells with staged, unsaved edits — rendered highlighted. */
   dirtyCells?: Set<string>;
+  /** Columns that are part of an outgoing foreign key — get a jump affordance. */
+  fkCols?: Set<string>;
+  /** Follow the FK on this cell's column to the referenced row. */
+  onFkClick?: (column: string, row: (string | null)[]) => void;
 }) {
   const [edit, setEdit] = useState<{ r: number; c: number; draft: string } | null>(null);
   // Single click opens the row drawer, double click edits a cell — when both
@@ -122,16 +128,28 @@ export function DataGrid({
                       </button>
                     </span>
                   </td>
-                ) : (
-                  <td
-                    key={j}
-                    className={`${cell === null ? "null" : ""} ${dirtyCells?.has(`${i}:${j}`) ? "dirty" : ""}`}
-                    title={cell ?? "NULL"}
-                    onDoubleClick={onEditCell ? () => startEdit(i, j, cell) : undefined}
-                  >
-                    {cell === null ? "NULL" : cell === "" ? <span style={{ opacity: 0.4 }}>∅</span> : cell}
-                  </td>
-                )
+                ) : (() => {
+                  const isFk = fkCols?.has(result.columns[j]) && cell !== null && !!onFkClick;
+                  return (
+                    <td
+                      key={j}
+                      className={`${cell === null ? "null" : ""} ${dirtyCells?.has(`${i}:${j}`) ? "dirty" : ""} ${isFk ? "cell-fk" : ""}`}
+                      title={cell ?? "NULL"}
+                      onDoubleClick={onEditCell ? () => startEdit(i, j, cell) : undefined}
+                    >
+                      {cell === null ? "NULL" : cell === "" ? <span style={{ opacity: 0.4 }}>∅</span> : cell}
+                      {isFk && (
+                        <button
+                          className="fk-jump"
+                          title={`Go to ${result.columns[j]} → referenced row`}
+                          onClick={(e) => { e.stopPropagation(); onFkClick!(result.columns[j], row); }}
+                        >
+                          ↗
+                        </button>
+                      )}
+                    </td>
+                  );
+                })()
               )}
             </tr>
           ))}

@@ -1,4 +1,4 @@
-import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
+import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -63,6 +63,9 @@ export const api = {
 
   schemaGraph: (id: string, schema: string): Promise<SchemaGraph> =>
     IS_TAURI ? invoke("schema_graph", { id, schema }) : demo.wait(demo.demoGraph(schema), 260),
+
+  tableRelations: (id: string, schema: string, table: string): Promise<TableRelations> =>
+    IS_TAURI ? invoke("table_relations", { id, schema, table }) : demo.wait(demo.demoRelations(schema, table), 150),
 
   tableRows: (
     id: string,
@@ -154,6 +157,16 @@ export async function saveDialog(defaultName: string, extension: string): Promis
     defaultPath: defaultName,
     filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
   });
+}
+
+/** Open a URL in the user's default browser (falls back to window.open in dev). */
+export async function openExternal(url: string): Promise<void> {
+  if (IS_TAURI) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 /** Browser/demo fallback: trigger a download from an in-memory string. */

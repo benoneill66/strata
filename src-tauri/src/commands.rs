@@ -8,9 +8,9 @@ use tokio_postgres::Client;
 use crate::ai::{self, SqlSuggestion};
 use crate::export;
 use crate::models::{
-    AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge,
-    GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings,
-    TableInfo,
+    AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, FkRef, GraphColumn,
+    GraphEdge, GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo,
+    Settings, TableInfo, TableRelations,
 };
 use crate::pg::{self, Pool};
 use crate::secrets;
@@ -364,6 +364,79 @@ pub async fn schema_graph(state: State<'_, AppState>, id: String, schema: String
     }
 
     Ok(SchemaGraph { nodes, edges })
+}
+
+/// Foreign keys touching one table, oriented for navigation: the FKs declared
+/// on it (outgoing → parent rows) and the FKs on other tables that point at it
+/// (incoming → child rows). Unlike `schema_graph` this follows edges across
+/// schemas, since a lookup can point anywhere. Powers click-through in Browse.
+#[tauri::command]
+pub async fn table_relations(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+) -> R<TableRelations> {
+    let client = client_for(&state, &id).await?;
+    let s = pg::quote_lit(&schema);
+    let t = pg::quote_lit(&table);
+
+    // Column lists for both ends of every FK constraint, with the parent side's
+    // namespace so cross-schema jumps land in the right schema. `local`/`other`
+    // are assigned per direction below.
+    let query = |where_clause: &str| {
+        format!(
+            "SELECT con.conname, cn.nspname, child.relname, pn.nspname, parent.relname, \
+                    (SELECT string_agg(a.attname, ',' ORDER BY k.ord) \
+                       FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) \
+                       JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum), \
+                    (SELECT string_agg(a.attname, ',' ORDER BY k.ord) \
+                       FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord) \
+                       JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum) \
+             FROM pg_constraint con \
+             JOIN pg_class child ON child.oid = con.conrelid \
+             JOIN pg_namespace cn ON cn.oid = child.relnamespace \
+             JOIN pg_class parent ON parent.oid = con.confrelid \
+             JOIN pg_namespace pn ON pn.oid = parent.relnamespace \
+             WHERE con.contype = 'f' AND {where_clause} \
+             ORDER BY con.conname"
+        )
+    };
+    let split = |s: String| s.split(',').map(|p| p.to_string()).collect::<Vec<_>>();
+
+    // Outgoing: this table is the child (conrelid). local = child cols (conkey),
+    // other = parent cols (confkey) on parent relation.
+    let out_sql = query(&format!("cn.nspname = {s} AND child.relname = {t}"));
+    let out_res = pg::simple(&client, &out_sql, 5_000).await?;
+    let outgoing = out_res
+        .rows
+        .iter()
+        .map(|r| FkRef {
+            constraint: cell(r, 0),
+            local_columns: split(cell(r, 5)),
+            other_schema: cell(r, 3),
+            other_table: cell(r, 4),
+            other_columns: split(cell(r, 6)),
+        })
+        .collect();
+
+    // Incoming: this table is the parent (confrelid). local = parent cols
+    // (confkey), other = the child's FK cols (conkey) on the child relation.
+    let in_sql = query(&format!("pn.nspname = {s} AND parent.relname = {t}"));
+    let in_res = pg::simple(&client, &in_sql, 5_000).await?;
+    let incoming = in_res
+        .rows
+        .iter()
+        .map(|r| FkRef {
+            constraint: cell(r, 0),
+            local_columns: split(cell(r, 6)),
+            other_schema: cell(r, 1),
+            other_table: cell(r, 2),
+            other_columns: split(cell(r, 5)),
+        })
+        .collect();
+
+    Ok(TableRelations { outgoing, incoming })
 }
 
 // ---------- data ----------

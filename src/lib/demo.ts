@@ -1,7 +1,7 @@
 // Fictional data for browser dev (bun run dev) — lets the UI render without
 // the Tauri backend or a real database, and keeps screenshots clean.
 
-import type { ColumnInfo, ConnectionProfile, Filter, GraphNode, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo } from "./types";
+import type { ColumnInfo, ConnectionProfile, Filter, FkRef, GraphNode, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo, TableRelations } from "./types";
 
 export const demoConnections: ConnectionProfile[] = [
   {
@@ -164,6 +164,27 @@ const demoGraphAuth: SchemaGraph = {
 
 export function demoGraph(schema: string): SchemaGraph {
   return schema === "auth" ? demoGraphAuth : demoGraphPublic;
+}
+
+// Every FK in the demo, with the schema of each endpoint — the cross-schema
+// sessions/api_keys → public.users edges aren't in either graph's `edges`.
+const demoFks: { schema: string; table: string; columns: string[]; target_schema: string; target_table: string; target_columns: string[]; name: string }[] = [
+  ...demoGraphPublic.edges.map((e) => ({
+    name: e.name, schema: "public", table: e.source, columns: e.source_columns,
+    target_schema: "public", target_table: e.target, target_columns: e.target_columns,
+  })),
+  { name: "sessions_user_id_fkey", schema: "auth", table: "sessions", columns: ["user_id"], target_schema: "public", target_table: "users", target_columns: ["id"] },
+  { name: "api_keys_user_id_fkey", schema: "auth", table: "api_keys", columns: ["user_id"], target_schema: "public", target_table: "users", target_columns: ["id"] },
+];
+
+export function demoRelations(schema: string, table: string): TableRelations {
+  const outgoing: FkRef[] = demoFks
+    .filter((f) => f.schema === schema && f.table === table)
+    .map((f) => ({ constraint: f.name, local_columns: f.columns, other_schema: f.target_schema, other_table: f.target_table, other_columns: f.target_columns }));
+  const incoming: FkRef[] = demoFks
+    .filter((f) => f.target_schema === schema && f.target_table === table)
+    .map((f) => ({ constraint: f.name, local_columns: f.target_columns, other_schema: f.schema, other_table: f.table, other_columns: f.columns }));
+  return { outgoing, incoming };
 }
 
 // EXPLAIN plan for browser dev: a hash join with a slow filtered seq scan.

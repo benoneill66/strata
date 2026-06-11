@@ -83,6 +83,7 @@ pub fn run() {
             commands::list_all_tables,
             commands::table_columns,
             commands::schema_graph,
+            commands::table_relations,
             commands::table_rows,
             commands::table_count,
             commands::update_rows,

@@ -143,6 +143,32 @@ pub struct SchemaGraph {
     pub edges: Vec<GraphEdge>,
 }
 
+// ---------- foreign-key navigation ----------
+
+/// A foreign-key edge oriented relative to the table being browsed. To follow
+/// it, jump to `other_schema.other_table` and filter every `other_columns[i]`
+/// to the current row's value at `local_columns[i]`. The orientation is the
+/// same whether the edge is outgoing (this table's FK → parent) or incoming
+/// (a child's FK → this table), so one shape drives navigation both ways.
+#[derive(Debug, Clone, Serialize)]
+pub struct FkRef {
+    pub constraint: String,
+    /// columns on the table being browsed
+    pub local_columns: Vec<String>,
+    pub other_schema: String,
+    pub other_table: String,
+    /// matching columns on the other relation
+    pub other_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TableRelations {
+    /// FKs declared on this table — each points at one parent row.
+    pub outgoing: Vec<FkRef>,
+    /// FKs on other tables that reference this table — each fans out to child rows.
+    pub incoming: Vec<FkRef>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct QueryResult {
     pub columns: Vec<String>,
