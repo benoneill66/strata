@@ -13,6 +13,8 @@ natural-language → SQL one tab away.
 [![Download](https://img.shields.io/github/v/release/benoneill66/strata?label=Download%20.dmg&style=for-the-badge&color=4fa8ff)](https://github.com/benoneill66/strata/releases/latest)
 &nbsp;
 ![Platform](https://img.shields.io/badge/macOS-Intel%20%2B%20Apple%20Silicon-38d9c4?style=for-the-badge)
+&nbsp;
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-ffdd00?style=for-the-badge)](https://buymeacoffee.com/benoneill)
 
 <img src="docs/browse.png" width="860" alt="Browsing a table in Strata" />
 
@@ -83,6 +85,12 @@ and notarize the build with an Apple Developer ID certificate.
 
 > **AI SQL** needs the [Claude CLI](https://claude.com/claude-code) installed and
 > signed in. Without it the app works fully — the *Ask AI* bar is just hidden.
+
+## Support
+
+If Strata saves you time, you can buy me a coffee — it keeps the releases coming.
+
+<a href="https://buymeacoffee.com/benoneill"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=benoneill&button_colour=5F7FFF&font_colour=ffffff&font_family=Arial&outline_colour=000000&coffee_colour=FFDD00" alt="Buy me a coffee" height="40" /></a>
 
 ## Storage
 
