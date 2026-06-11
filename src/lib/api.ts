@@ -9,7 +9,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return mod.invoke<T>(cmd, args);
 }
 
-const demoSettings: Settings = { connections: demo.demoConnections, row_limit: 200 };
+const demoSettings: Settings = { connections: demo.demoConnections, row_limit: 200, ai_provider: "claude" };
 const demoConnected = new Set<string>();
 
 export const api = {
@@ -123,7 +123,17 @@ export const api = {
       : demo.wait("The Seq Scan on orders dominates (~70% of execution) because status has no index. CREATE INDEX ON orders (status) — or a partial index WHERE status = 'paid' — would let the join probe far fewer rows.", 900),
 
   aiStatus: (): Promise<AiStatus> =>
-    IS_TAURI ? invoke("ai_status") : demo.wait({ available: true, path: "demo" }, 60),
+    IS_TAURI
+      ? invoke("ai_status")
+      : demo.wait({
+          provider: demoSettings.ai_provider,
+          available: true,
+          path: "demo",
+          model: demoSettings.ai_provider === "codex" ? "gpt-5.4-mini" : "sonnet",
+          effort: "low",
+          claude_path: "demo",
+          codex_path: "demo",
+        }, 60),
 
   generateSql: (id: string, question: string): Promise<SqlSuggestion> =>
     IS_TAURI ? invoke("generate_sql", { id, question }) : demo.wait(demo.demoSuggestion(question), 900),

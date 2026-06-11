@@ -65,7 +65,7 @@ natural-language → SQL one tab away.
   elapsed/row chips, copy-as-CSV, and local query history.
 - **Ask AI** — type a question in plain English and Strata writes the SQL from
   your live schema, dropping it into the editor and auto-running read-only
-  queries. Powered by your local Claude CLI sign-in — no API key.
+  queries. Powered by your local Claude or Codex CLI sign-in — no API key.
 - **Native feel** — transparent vibrancy window, hidden title bar, dark glass UI.
   No Electron.
 
@@ -98,8 +98,9 @@ This builds a universal (Intel + Apple Silicon) app and wraps it in a disk
 image with `hdiutil`. To drop the Gatekeeper step for recipients entirely, sign
 and notarize the build with an Apple Developer ID certificate.
 
-> **AI SQL** needs the [Claude CLI](https://claude.com/claude-code) installed and
-> signed in. Without it the app works fully — the *Ask AI* bar is just hidden.
+> **AI SQL** needs either the [Claude CLI](https://claude.com/claude-code) or the
+> Codex CLI installed and signed in. Choose the provider in Settings. Without a
+> selected CLI the app works fully — the *Ask AI* bar is just hidden.
 
 ## Support
 

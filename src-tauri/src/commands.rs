@@ -8,7 +8,7 @@ use tokio_postgres::Client;
 use crate::ai::{self, SqlSuggestion};
 use crate::export;
 use crate::models::{
-    AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, FkRef, GraphColumn,
+    AiProvider, AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, FkRef, GraphColumn,
     GraphEdge, GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo,
     Settings, TableInfo, TableRelations,
 };
@@ -39,6 +39,10 @@ async fn client_for(state: &State<'_, AppState>, id: &str) -> R<Arc<Client>> {
         .get(id)
         .cloned()
         .ok_or_else(|| "Not connected — open the connection first.".to_string())
+}
+
+fn selected_ai_provider(state: &State<'_, AppState>) -> AiProvider {
+    state.settings.read().ai_provider
 }
 
 // ---------- settings ----------
@@ -647,10 +651,11 @@ pub async fn explain_query(
     pg::explain(&client, &sql, analyze).await
 }
 
-/// Feed a plan to the Claude CLI for a short bottleneck diagnosis.
+/// Feed a plan to the selected AI CLI for a short bottleneck diagnosis.
 #[tauri::command]
-pub async fn diagnose_plan(sql: String, plan: String) -> R<String> {
-    ai::diagnose_plan(&sql, &plan).await
+pub async fn diagnose_plan(state: State<'_, AppState>, sql: String, plan: String) -> R<String> {
+    let provider = selected_ai_provider(&state);
+    ai::diagnose_plan(provider, &sql, &plan).await
 }
 
 // ---------- AI ----------
@@ -704,13 +709,25 @@ async fn schema_context(client: &tokio_postgres::Client) -> R<(String, bool)> {
 }
 
 #[tauri::command]
-pub fn ai_status() -> AiStatus {
-    let (available, path) = ai::cli_status();
-    AiStatus { available, path }
+pub fn ai_status(state: State<AppState>) -> AiStatus {
+    let provider = selected_ai_provider(&state);
+    let (available, path) = ai::cli_status(provider);
+    let (model, effort) = ai::cli_config(provider);
+    let (claude_path, codex_path) = ai::provider_paths();
+    AiStatus {
+        provider,
+        available,
+        path,
+        model: model.to_string(),
+        effort: effort.to_string(),
+        claude_path,
+        codex_path,
+    }
 }
 
 #[tauri::command]
 pub async fn generate_sql(state: State<'_, AppState>, id: String, question: String) -> R<SqlSuggestion> {
+    let provider = selected_ai_provider(&state);
     let client = client_for(&state, &id).await?;
     let info = pg::simple(
         &client,
@@ -725,5 +742,5 @@ pub async fn generate_sql(state: State<'_, AppState>, id: String, question: Stri
     if truncated {
         ctx.push_str("… (schema truncated; ask about a specific table if your target is missing)\n");
     }
-    ai::generate_sql(&version, &db, &ctx, &question).await
+    ai::generate_sql(provider, &version, &db, &ctx, &question).await
 }

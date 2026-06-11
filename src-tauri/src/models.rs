@@ -25,6 +25,8 @@ pub struct ConnectionProfile {
 pub struct Settings {
     pub connections: Vec<ConnectionProfile>,
     pub row_limit: u32,
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: AiProvider,
 }
 
 impl Default for Settings {
@@ -32,8 +34,20 @@ impl Default for Settings {
         Self {
             connections: vec![],
             row_limit: 200,
+            ai_provider: default_ai_provider(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    Claude,
+    Codex,
+}
+
+fn default_ai_provider() -> AiProvider {
+    AiProvider::Claude
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,8 +119,13 @@ pub struct RowUpdate {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AiStatus {
+    pub provider: AiProvider,
     pub available: bool,
     pub path: String,
+    pub model: String,
+    pub effort: String,
+    pub claude_path: String,
+    pub codex_path: String,
 }
 
 // ---------- schema graph (ER diagram) ----------

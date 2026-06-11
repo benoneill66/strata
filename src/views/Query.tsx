@@ -3,7 +3,7 @@ import { api } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { elapsed, num } from "../lib/format";
 import { Icon } from "../lib/icons";
-import type { QueryResult } from "../lib/types";
+import type { AiProvider, QueryResult } from "../lib/types";
 import type { ChartConfig } from "../lib/chart";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
@@ -34,6 +34,7 @@ function loadHistory(): string[] {
 export function Query({
   connId,
   database,
+  aiProvider,
   hasConnections,
   onNew,
   onSwitchDatabase,
@@ -41,6 +42,7 @@ export function Query({
 }: {
   connId: string | null;
   database: string | null;
+  aiProvider: AiProvider;
   hasConnections: boolean;
   onNew: () => void;
   onSwitchDatabase: (id: string, db: string) => Promise<void>;
@@ -63,7 +65,7 @@ export function Query({
   const [chart, setChart] = useState<ChartConfig | null>(null);
 
   // AI: ask in English, get SQL into the editor (auto-run when read-only).
-  const ai = useAsync(() => api.aiStatus(), []);
+  const ai = useAsync(() => api.aiStatus(), [aiProvider]);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);

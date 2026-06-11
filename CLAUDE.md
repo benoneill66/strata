@@ -54,20 +54,28 @@ a mirror of `export.rs`) and downloads a Blob.
 
 ## AI SQL generation
 
-`src-tauri/src/ai.rs` shells out to the **Claude CLI** (`claude -p
---output-format json`, tool-less) — same approach as Sentinel, with the same
-Finder-PATH probing for the `claude` binary. `generate_sql` builds a compact
-schema dump of the connected database (`schema_context` in `commands.rs`,
-capped at ~14k chars) as the system prompt and feeds the user's natural-language
-question on stdin; the model returns `{sql, explanation}`. The Query view's AI
-bar inserts the SQL into the editor; auto-running is opt-in via the Auto-run
-toggle (off by default, persisted in localStorage), and even then only fires
-for read-only queries (`isReadOnly` in `views/Query.tsx`) — write queries are
-always inserted for review only.
-No API key — auth rides on the user's existing Claude CLI sign-in. `ai_status`
-reports availability (shown in Settings). The live path is covered by
-`tests/ai_smoke.rs` (gated behind `STRATA_TEST_AI=1`). The same CLI pipeline
-powers `diagnose_plan` — the Diagnose button in the EXPLAIN visualizer
+`src-tauri/src/ai.rs` shells out to the selected local AI CLI. `claude` uses
+`claude -p --model sonnet --effort low --output-format json` with tools
+disabled; `codex` uses
+`codex exec -c model="gpt-5.4-mini" -c model_reasoning_effort="low"
+--ignore-user-config --ignore-rules --ephemeral --sandbox read-only` and reads
+the final response from `--output-last-message`. Finder-PATH probing resolves
+both binaries from common install locations plus a login shell `command -v`
+fallback. The saved `settings.ai_provider` chooses between them and defaults to
+`claude` for existing installs.
+
+`generate_sql` builds a compact schema dump of the connected database
+(`schema_context` in `commands.rs`, capped at ~14k chars) as the prompt context
+and feeds the user's natural-language question on stdin; the model returns
+`{sql, explanation}`. The Query view's AI bar inserts the SQL into the editor;
+auto-running is opt-in via the Auto-run toggle (off by default, persisted in
+localStorage), and even then only fires for read-only queries (`isReadOnly` in
+`views/Query.tsx`) — write queries are always inserted for review only.
+No API key — auth rides on the user's existing CLI sign-in. `ai_status`
+reports selected-provider availability plus detected CLI paths (shown in
+Settings). The live path is covered by `tests/ai_smoke.rs` (gated behind
+`STRATA_TEST_AI=1`; set `STRATA_TEST_AI_PROVIDER=codex` to exercise Codex).
+The same CLI pipeline powers `diagnose_plan` — the Diagnose button in the EXPLAIN visualizer
 (`components/PlanView.tsx`), which sends the SQL + plan JSON for a short
 bottleneck diagnosis. Plans come from `pg::explain`, which always wraps the
 statement in BEGIN/ROLLBACK so EXPLAIN ANALYZE on a write never lands.

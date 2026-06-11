@@ -1,9 +1,17 @@
 import { api, IS_TAURI, openExternal } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { Icon } from "../lib/icons";
-import type { Settings as SettingsType } from "../lib/types";
+import type { AiProvider, Settings as SettingsType } from "../lib/types";
 
 const PAGE_SIZES = [100, 200, 500, 1000];
+const AI_PROVIDERS: { id: AiProvider; label: string; install: string }[] = [
+  { id: "claude", label: "Claude", install: "Install Claude Code and sign in." },
+  { id: "codex", label: "Codex", install: "Install Codex CLI and run codex login." },
+];
+
+function providerLabel(provider: AiProvider) {
+  return AI_PROVIDERS.find((p) => p.id === provider)?.label ?? provider;
+}
 
 export function Settings({
   settings,
@@ -12,7 +20,8 @@ export function Settings({
   settings: SettingsType;
   onSettings: (s: SettingsType) => Promise<void>;
 }) {
-  const ai = useAsync(() => api.aiStatus(), []);
+  const ai = useAsync(() => api.aiStatus(), [settings.ai_provider]);
+  const selectedProvider = providerLabel(settings.ai_provider);
   return (
     <div className="rise" style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 560 }}>
       <div>
@@ -42,18 +51,41 @@ export function Settings({
         <div className="label" style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 7 }}>
           <span style={{ color: "var(--accent-2)", display: "flex" }}><Icon.sparkles w={14} /></span> AI SQL
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <div className="seg">
+            {AI_PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                className={settings.ai_provider === p.id ? "on" : ""}
+                onClick={() => onSettings({ ...settings, ai_provider: p.id })}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>provider for Ask AI and plan diagnosis</span>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13 }}>
           <span className={`dot ${ai.data?.available ? "ok" : "error"}`} />
           {ai.data?.available ? (
-            <span>Enabled — ask questions in the <strong>Query</strong> view and Strata generates SQL via the Claude CLI.</span>
+            <span>
+              Enabled — Strata generates SQL via the <strong>{selectedProvider}</strong> CLI
+              {ai.data.model && <> with <span className="mono" style={{ fontSize: 12 }}>{ai.data.model}</span> / {ai.data.effort} effort</>}.
+            </span>
           ) : (
             <span style={{ color: "var(--muted)" }}>
-              Claude CLI not found. Install with <span className="mono" style={{ fontSize: 12 }}>npm i -g @anthropic-ai/claude-code</span> and sign in, then reopen Strata.
+              {selectedProvider} CLI not found. {AI_PROVIDERS.find((p) => p.id === settings.ai_provider)?.install}
             </span>
           )}
         </div>
         {ai.data?.available && ai.data.path !== "demo" && (
           <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>{ai.data.path}</div>
+        )}
+        {ai.data && ai.data.path !== "demo" && (ai.data.claude_path || ai.data.codex_path) && (
+          <div className="meta-grid" style={{ marginTop: 12 }}>
+            <span className="k">Claude</span><span className="v mono" style={{ fontSize: 11 }}>{ai.data.claude_path || "not found"}</span>
+            <span className="k">Codex</span><span className="v mono" style={{ fontSize: 11 }}>{ai.data.codex_path || "not found"}</span>
+          </div>
         )}
       </div>
 

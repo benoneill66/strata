@@ -37,7 +37,7 @@ export default function App() {
 
   useEffect(() => {
     if (!IS_TAURI) document.body.classList.add("no-native");
-    api.getSettings().then(setSettings).catch(() => setSettings({ connections: [], row_limit: 200 }));
+    api.getSettings().then(setSettings).catch(() => setSettings({ connections: [], row_limit: 200, ai_provider: "claude" }));
   }, []);
 
   useEffect(() => {
@@ -191,6 +191,7 @@ export default function App() {
             <Query
               connId={activeId && activeInfo ? activeId : null}
               database={activeInfo?.database ?? null}
+              aiProvider={settings.ai_provider}
               hasConnections={hasConnections}
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}

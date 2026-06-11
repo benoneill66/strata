@@ -15,7 +15,10 @@ export interface ConnectionProfile {
 export interface Settings {
   connections: ConnectionProfile[];
   row_limit: number;
+  ai_provider: AiProvider;
 }
+
+export type AiProvider = "claude" | "codex";
 
 export interface DbInfo {
   id: string;
@@ -128,8 +131,13 @@ export interface SchemaGraph {
 }
 
 export interface AiStatus {
+  provider: AiProvider;
   available: boolean;
   path: string;
+  model: string;
+  effort: string;
+  claude_path: string;
+  codex_path: string;
 }
 
 export interface SqlSuggestion {

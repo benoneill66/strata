@@ -1,8 +1,22 @@
-// Exercises the real Claude CLI path. Skipped unless STRATA_TEST_AI=1 (it makes
+// Exercises the real AI CLI path. Skipped unless STRATA_TEST_AI=1 (it makes
 // a live model call). Run: STRATA_TEST_AI=1 cargo test --test ai_smoke -- --nocapture
 
-use strata_lib::models::ConnectionProfile;
+use strata_lib::models::{AiProvider, ConnectionProfile};
 use strata_lib::{ai, pg};
+
+fn test_provider() -> AiProvider {
+    match std::env::var("STRATA_TEST_AI_PROVIDER").ok().as_deref() {
+        Some("codex") => AiProvider::Codex,
+        _ => AiProvider::Claude,
+    }
+}
+
+fn provider_name(provider: AiProvider) -> &'static str {
+    match provider {
+        AiProvider::Claude => "Claude",
+        AiProvider::Codex => "Codex",
+    }
+}
 
 /// Build the same compact schema dump the `generate_sql` command sends as context.
 async fn schema_dump(client: &tokio_postgres::Client, schema: &str) -> String {
@@ -24,12 +38,13 @@ async fn schema_dump(client: &tokio_postgres::Client, schema: &str) -> String {
 #[tokio::test]
 async fn generates_select_from_tiny_schema() {
     if std::env::var("STRATA_TEST_AI").ok().as_deref() != Some("1") {
-        eprintln!("skipping: set STRATA_TEST_AI=1 to run the live Claude call");
+        eprintln!("skipping: set STRATA_TEST_AI=1 to run the live AI call");
         return;
     }
-    let (available, _) = ai::cli_status();
+    let provider = test_provider();
+    let (available, _) = ai::cli_status(provider);
     if !available {
-        eprintln!("skipping: claude CLI not found");
+        eprintln!("skipping: {} CLI not found", provider_name(provider));
         return;
     }
 
@@ -37,7 +52,7 @@ async fn generates_select_from_tiny_schema() {
                   public.orders(id uuid, user_id uuid, total_cents integer, created_at timestamptz)\n";
     // A question the model could be tempted to answer from an MCP source (e.g.
     // RevenueCat) instead of writing SQL — verifies --strict-mcp-config holds.
-    let s = ai::generate_sql("16.0", "shop", schema, "how many trial users do we have?")
+    let s = ai::generate_sql(provider, "16.0", "shop", schema, "how many trial users do we have?")
         .await
         .expect("generate_sql failed");
 
@@ -59,9 +74,10 @@ async fn end_to_end_against_real_db() {
         eprintln!("skipping: set STRATA_TEST_AI=1");
         return;
     }
-    let (available, _) = ai::cli_status();
+    let provider = test_provider();
+    let (available, _) = ai::cli_status(provider);
     if !available {
-        eprintln!("skipping: claude CLI not found");
+        eprintln!("skipping: {} CLI not found", provider_name(provider));
         return;
     }
     let db = std::env::var("STRATA_TEST_AI_DB").unwrap_or_else(|_| "postgres".into());
@@ -89,7 +105,7 @@ async fn end_to_end_against_real_db() {
     let question = std::env::var("STRATA_TEST_AI_Q")
         .unwrap_or_else(|_| "how many users signed up in the last 30 days?".into());
 
-    let s = ai::generate_sql("16.0", &db, &schema, &question).await.expect("generate_sql failed");
+    let s = ai::generate_sql(provider, "16.0", &db, &schema, &question).await.expect("generate_sql failed");
     eprintln!("Q: {question}\nSQL: {}\nWHY: {}", s.sql, s.explanation);
 
     // The generated SQL should run cleanly against the real database.
