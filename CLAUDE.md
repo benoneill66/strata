@@ -16,9 +16,12 @@ plaintext for local servers. There is no parameter binding on this protocol —
 grid filters are built via `quote_ident`/`quote_lit` in `pg::filter_sql`; keep
 any new SQL construction inside `pg.rs` and reuse those helpers. Row mutations
 (inline editing in Browse) are built by `pg::update_sql`/`insert_sql`/
-`delete_sql` — rows are matched on their primary-key values in text form — and
-single-row writes run through `pg::exec_expect`, which wraps the statement in
-a transaction and rolls back unless exactly one row was touched.
+`delete_sql` — rows are matched on their primary-key values in text form.
+Cell edits stage in the frontend (`pending` in `views/Browse.tsx`, keyed on
+pk+column so they survive paging/reloads) and save as one batch through
+`pg::apply_updates`, a single transaction where every UPDATE must touch
+exactly one row or the whole batch rolls back; single-row deletes go through
+`pg::exec_expect` with the same exactly-one guard.
 
 Live connections are held in `pg::Pool` (HashMap of `tokio_postgres::Client`
 keyed by profile id) managed in `AppState`. Saved connection profiles —

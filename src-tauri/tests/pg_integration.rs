@@ -1,7 +1,7 @@
 // Integration tests against a local Postgres (skipped silently if none is
 // listening on localhost:5432). Run: cargo test -- --nocapture
 
-use strata_lib::models::{CellValue, ConnectionProfile, Filter};
+use strata_lib::models::{CellValue, ConnectionProfile, Filter, RowUpdate};
 use strata_lib::pg;
 
 fn cv(column: &str, value: Option<&str>) -> CellValue {
@@ -163,6 +163,33 @@ async fn end_to_end_against_local_postgres() {
     let res = pg::simple(&client, "SELECT name FROM strata_test WHERE n = 99", 10).await.unwrap();
     assert_eq!(res.rows.len(), 1);
     assert_eq!(res.rows[0][0], None);
+
+    // batched edits: two rows saved in one transaction
+    let updates = vec![
+        RowUpdate { keys: vec![cv("n", Some("2"))], changes: vec![cv("name", Some("ada-2"))] },
+        RowUpdate { keys: vec![cv("n", Some("3"))], changes: vec![cv("name", Some("grace-2"))] },
+    ];
+    assert_eq!(pg::apply_updates(&client, "public", "strata_test", &updates).await.unwrap(), 2);
+    let res = pg::simple(
+        &client,
+        "SELECT count(*) FROM strata_test WHERE name IN ('ada-2','grace-2')",
+        1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(res.rows[0][0].as_deref(), Some("2"));
+
+    // batched edits are all-or-nothing: a row matching 0 rolls back the batch
+    let updates = vec![
+        RowUpdate { keys: vec![cv("n", Some("2"))], changes: vec![cv("name", Some("ada-3"))] },
+        RowUpdate { keys: vec![cv("n", Some("12345"))], changes: vec![cv("name", Some("ghost"))] },
+    ];
+    let err = pg::apply_updates(&client, "public", "strata_test", &updates).await.unwrap_err();
+    assert!(err.contains("row 2 matched 0 rows"));
+    let res = pg::simple(&client, "SELECT count(*) FROM strata_test WHERE name = 'ada-3'", 1)
+        .await
+        .unwrap();
+    assert_eq!(res.rows[0][0].as_deref(), Some("0")); // first row rolled back too
 
     // guard: a write matching 0 rows rolls back and errors
     let sql = pg::update_sql(

@@ -58,6 +58,12 @@ export interface CellValue {
   value: string | null;
 }
 
+/** One row's staged edits: primary-key values plus the column changes. */
+export interface RowUpdate {
+  keys: CellValue[];
+  changes: CellValue[];
+}
+
 export const FILTER_OPS: { id: FilterOp; label: string; needsValue: boolean }[] = [
   { id: "contains", label: "contains", needsValue: true },
   { id: "eq", label: "=", needsValue: true },

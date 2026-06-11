@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { QueryResult } from "../lib/types";
-import { Spinner } from "./ui";
 
 /** Shared results grid: sticky header, mono cells, dimmed NULLs, optional
     sortable headers, row click-through and double-click cell editing.
@@ -14,6 +13,7 @@ export function DataGrid({
   onRowClick,
   pkCols,
   onEditCell,
+  dirtyCells,
 }: {
   result: QueryResult;
   startIndex?: number;
@@ -22,11 +22,12 @@ export function DataGrid({
   onSort?: (col: string) => void;
   onRowClick?: (row: (string | null)[]) => void;
   pkCols?: Set<string>;
-  /** Enables double-click editing. Resolves when the write lands; throw to
-      keep the editor open (the caller surfaces the error). */
-  onEditCell?: (rowIndex: number, colIndex: number, value: string | null) => Promise<void>;
+  /** Enables double-click editing; stages the value locally (synchronous). */
+  onEditCell?: (rowIndex: number, colIndex: number, value: string | null) => void;
+  /** "row:col" cells with staged, unsaved edits — rendered highlighted. */
+  dirtyCells?: Set<string>;
 }) {
-  const [edit, setEdit] = useState<{ r: number; c: number; draft: string; saving: boolean } | null>(null);
+  const [edit, setEdit] = useState<{ r: number; c: number; draft: string } | null>(null);
   // Single click opens the row drawer, double click edits a cell — when both
   // are wired, delay the click so a double-click can cancel it.
   const clickTimer = useRef<number | null>(null);
@@ -49,19 +50,13 @@ export function DataGrid({
       window.clearTimeout(clickTimer.current);
       clickTimer.current = null;
     }
-    setEdit({ r, c, draft: cell ?? "", saving: false });
+    setEdit({ r, c, draft: cell ?? "" });
   }
 
-  async function commit(value: string | null) {
-    if (!edit || !onEditCell || edit.saving) return;
-    setEdit({ ...edit, saving: true });
-    try {
-      await onEditCell(edit.r, edit.c, value);
-      setEdit(null);
-    } catch {
-      // error already toasted by the caller — keep editing
-      setEdit((e) => (e ? { ...e, saving: false } : null));
-    }
+  function commit(value: string | null) {
+    if (!edit || !onEditCell) return;
+    onEditCell(edit.r, edit.c, value);
+    setEdit(null);
   }
 
   if (!result.columns.length) return null;
@@ -101,14 +96,13 @@ export function DataGrid({
                         className="cell-input"
                         autoFocus
                         value={edit.draft}
-                        disabled={edit.saving}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => setEdit((s) => (s ? { ...s, draft: e.target.value } : s))}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") commit(edit.draft);
                           if (e.key === "Escape") setEdit(null);
                         }}
-                        onBlur={() => setEdit((s) => (s && !s.saving ? null : s))}
+                        onBlur={() => setEdit(null)}
                       />
                       <button
                         className="cell-null-btn"
@@ -118,13 +112,12 @@ export function DataGrid({
                       >
                         ∅
                       </button>
-                      {edit.saving && <Spinner size={12} />}
                     </span>
                   </td>
                 ) : (
                   <td
                     key={j}
-                    className={cell === null ? "null" : ""}
+                    className={`${cell === null ? "null" : ""} ${dirtyCells?.has(`${i}:${j}`) ? "dirty" : ""}`}
                     title={cell ?? "NULL"}
                     onDoubleClick={onEditCell ? () => startEdit(i, j, cell) : undefined}
                   >

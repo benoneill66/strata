@@ -6,7 +6,7 @@ use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use tokio_postgres::{Client, Config, NoTls, SimpleQueryMessage};
 
-use crate::models::{CellValue, ConnectionProfile, Filter, QueryResult};
+use crate::models::{CellValue, ConnectionProfile, Filter, QueryResult, RowUpdate};
 
 /// Live connections keyed by profile id. Dropping a Client closes the
 /// connection task spawned in `open`.
@@ -207,6 +207,42 @@ pub fn delete_sql(schema: &str, table: &str, keys: &[CellValue]) -> Result<Strin
         quote_ident(table),
         key_sql(keys)?
     ))
+}
+
+/// Apply a batch of staged row edits in one transaction. Every UPDATE must
+/// touch exactly one row — anything else (stale grid, key that turned out not
+/// to be unique) rolls back the whole batch so a partial save never lands.
+pub async fn apply_updates(
+    client: &Client,
+    schema: &str,
+    table: &str,
+    updates: &[RowUpdate],
+) -> Result<u64, String> {
+    if updates.is_empty() {
+        return Ok(0);
+    }
+    simple(client, "BEGIN", 1).await?;
+    for (i, u) in updates.iter().enumerate() {
+        let outcome = match update_sql(schema, table, &u.keys, &u.changes) {
+            Err(e) => Err(e),
+            Ok(sql) => match simple(client, &sql, 1).await {
+                Err(e) => Err(format!("row {}: {e} — nothing was saved", i + 1)),
+                Ok(res) => match res.affected.unwrap_or(0) {
+                    1 => Ok(()),
+                    n => Err(format!(
+                        "row {} matched {n} rows (expected 1) — nothing was saved. Refresh and try again.",
+                        i + 1
+                    )),
+                },
+            },
+        };
+        if let Err(e) = outcome {
+            let _ = simple(client, "ROLLBACK", 1).await;
+            return Err(e);
+        }
+    }
+    simple(client, "COMMIT", 1).await?;
+    Ok(updates.len() as u64)
 }
 
 /// Run a single-row write inside a transaction and commit only if it touched

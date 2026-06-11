@@ -42,10 +42,11 @@ natural-language → SQL one tab away.
   counts on demand, pagination, a structure tab (types, PKs, defaults) and a
   row-detail drawer with copy-as-JSON.
 - **Edit** — tables with a primary key are editable in place: double-click a
-  cell to change it (with one-tap NULL), add rows from a column-aware drawer
-  that knows defaults and nullability, and delete rows from the detail drawer.
-  Every write is keyed on the primary key and rolled back unless it touches
-  exactly one row.
+  cell to change it (with one-tap NULL). Edits stage locally — highlighted
+  amber until you hit Save (⌘S) — then land together in a single transaction
+  that rolls back entirely unless every row matches exactly once. Add rows
+  from a column-aware drawer that knows defaults and nullability; delete rows
+  from the detail drawer.
 - **Schema** — an interactive ER diagram of the whole schema: force-laid-out
   table cards with primary/foreign-key markers and foreign-key edges. Pan, zoom,
   drag, search, and click a table to light up everything it links to. Toggle

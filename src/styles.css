@@ -326,6 +326,12 @@ body.no-native {
 
 /* inline cell editing */
 .data-table td.editing { padding: 2px 6px; overflow: visible; background: rgba(79,168,255,0.08); }
+.data-table td.dirty {
+  background: rgba(255,193,94,0.10);
+  box-shadow: inset 2.5px 0 0 rgba(255,193,94,0.65);
+  color: #ffd9a0; font-style: normal; opacity: 1;
+}
+.data-table tbody tr:hover td.dirty { background: rgba(255,193,94,0.15); }
 .cell-input {
   width: 100%; min-width: 110px; padding: 3px 7px; border-radius: 7px;
   background: rgba(0,0,0,0.4); border: 1px solid rgba(79,168,255,0.55);

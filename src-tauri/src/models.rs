@@ -82,6 +82,14 @@ pub struct CellValue {
     pub value: Option<String>,
 }
 
+/// One row's worth of staged edits: the primary-key values that address the
+/// row and the column changes to apply to it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RowUpdate {
+    pub keys: Vec<CellValue>,
+    pub changes: Vec<CellValue>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AiStatus {
     pub available: bool,

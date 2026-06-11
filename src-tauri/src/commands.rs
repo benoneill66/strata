@@ -8,7 +8,7 @@ use tokio_postgres::Client;
 use crate::ai::{self, SqlSuggestion};
 use crate::models::{
     AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge,
-    GraphNode, QueryResult, SchemaGraph, SchemaInfo, Settings, TableInfo,
+    GraphNode, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, TableInfo,
 };
 use crate::pg::{self, Pool};
 
@@ -377,20 +377,18 @@ pub async fn table_count(
 
 // ---------- row mutations (inline editing) ----------
 
-/// Update one row, matched by its primary-key values as displayed in the grid.
-/// Wrapped in a transaction that rolls back unless exactly one row matched.
+/// Apply a batch of staged edits, each row matched by its primary-key values
+/// as displayed in the grid. One transaction: all rows save or none do.
 #[tauri::command]
-pub async fn update_row(
+pub async fn update_rows(
     state: State<'_, AppState>,
     id: String,
     schema: String,
     table: String,
-    keys: Vec<CellValue>,
-    changes: Vec<CellValue>,
+    updates: Vec<RowUpdate>,
 ) -> R<u64> {
     let client = client_for(&state, &id).await?;
-    let sql = pg::update_sql(&schema, &table, &keys, &changes)?;
-    pg::exec_expect(&client, &sql, 1).await
+    pg::apply_updates(&client, &schema, &table, &updates).await
 }
 
 #[tauri::command]

@@ -5,12 +5,18 @@ import { useAsync } from "../lib/hooks";
 import { bytes, elapsed, estRows, num } from "../lib/format";
 import { Icon } from "../lib/icons";
 import { FILTER_OPS, TABLE_KINDS } from "../lib/types";
-import type { CellValue, ColumnInfo, Filter, FilterOp } from "../lib/types";
+import type { CellValue, ColumnInfo, Filter, FilterOp, RowUpdate } from "../lib/types";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
 
 const PAGE_SIZES = [100, 200, 500, 1000];
+
+/** One staged (unsaved) cell edit, addressed by primary key + column. */
+type PendingEdit = { keys: CellValue[]; column: string; value: string | null };
+
+const pendingKey = (keys: CellValue[], column: string) =>
+  `${JSON.stringify(keys.map((k) => [k.column, k.value]))}|${column}`;
 
 export function Browse({
   connId,
@@ -42,6 +48,11 @@ export function Browse({
   const [counting, setCounting] = useState(false);
   const [detail, setDetail] = useState<(string | null)[] | null>(null);
   const [inserting, setInserting] = useState(false);
+
+  // Staged cell edits, keyed on the row's primary-key values + column so they
+  // survive paging, sorting and reloads. Saved together in one transaction.
+  const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
+  const [savingEdits, setSavingEdits] = useState(false);
 
   // Switching database reopens the connection against a different catalog, so
   // drop the current schema/table selection and let the defaults re-pick.
@@ -124,32 +135,109 @@ export function Browse({
   const isRealTable = tableInfo?.kind === "r" || tableInfo?.kind === "p";
   const canEditRows = isRealTable && pkCols.size > 0;
 
-  /** Primary-key values identifying a row, as displayed in the grid. */
-  function keysFor(row: (string | null)[]): CellValue[] {
-    const cols = rows.data?.columns ?? [];
+  /** Primary-key values identifying a row, from its as-loaded (not staged) values. */
+  function rowKeys(row: (string | null)[], cols: string[]): CellValue[] {
     return cols
       .map((column, i) => ({ column, value: row[i] }))
       .filter((kv) => pkCols.has(kv.column));
   }
 
-  async function editCell(rowIdx: number, colIdx: number, value: string | null) {
-    if (!connId || !schema || !table || !rows.data) return;
+  // staged edits are per-table
+  useEffect(() => setPending(new Map()), [connId, database, schema, table]);
+
+  function stageEdit(rowIdx: number, colIdx: number, value: string | null) {
+    if (!rows.data) return;
+    // keys come from the row as loaded, so a staged pk edit still addresses
+    // the row by the value the database currently holds
     const row = rows.data.rows[rowIdx];
     const column = rows.data.columns[colIdx];
+    const keys = rowKeys(row, rows.data.columns);
+    const k = pendingKey(keys, column);
+    setPending((prev) => {
+      const next = new Map(prev);
+      if (value === row[colIdx]) next.delete(k); // edited back to the original
+      else next.set(k, { keys, column, value });
+      return next;
+    });
+  }
+
+  // What the grid shows: loaded rows with staged values overlaid, plus the
+  // set of "row:col" cells to highlight as dirty.
+  const displayed = useMemo(() => {
+    if (!rows.data) return null;
+    if (pending.size === 0) return { result: rows.data, dirty: undefined };
+    const dirty = new Set<string>();
+    const cols = rows.data.columns;
+    const outRows = rows.data.rows.map((row, ri) => {
+      const keys = rowKeys(row, cols);
+      if (!keys.length) return row;
+      let out = row;
+      cols.forEach((column, ci) => {
+        const p = pending.get(pendingKey(keys, column));
+        if (p) {
+          if (out === row) out = [...row];
+          out[ci] = p.value;
+          dirty.add(`${ri}:${ci}`);
+        }
+      });
+      return out;
+    });
+    return { result: { ...rows.data, rows: outRows }, dirty };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows.data, pending, pkCols]);
+
+  async function savePending() {
+    if (!connId || !schema || !table || pending.size === 0 || savingEdits) return;
+    // group staged cell edits by row
+    const byRow = new Map<string, RowUpdate>();
+    for (const p of pending.values()) {
+      const rk = JSON.stringify(p.keys.map((k) => [k.column, k.value]));
+      const u = byRow.get(rk) ?? { keys: p.keys, changes: [] };
+      u.changes.push({ column: p.column, value: p.value });
+      byRow.set(rk, u);
+    }
+    const updates = [...byRow.values()];
+    setSavingEdits(true);
     try {
-      await api.updateRow(connId, schema, table, keysFor(row), [{ column, value }]);
-      toast(`Updated ${column}`, "ok");
+      await api.updateRows(connId, schema, table, updates);
+      toast(
+        `Saved ${pending.size} edit${pending.size === 1 ? "" : "s"} across ${updates.length} row${updates.length === 1 ? "" : "s"}`,
+        "ok"
+      );
+      setPending(new Map());
       rows.reload();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
-      throw e; // keep the cell editor open
+    } finally {
+      setSavingEdits(false);
     }
   }
 
+  // ⌘S saves staged edits while any are pending
+  useEffect(() => {
+    if (pending.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        savePending();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, savingEdits, connId, schema, table]);
+
   async function deleteRow(row: (string | null)[]) {
-    if (!connId || !schema || !table) return;
+    if (!connId || !schema || !table || !rows.data || !displayed) return;
+    // the drawer shows staged values — address the delete by the row as loaded
+    const idx = displayed.result.rows.indexOf(row);
+    const original = idx >= 0 ? rows.data.rows[idx] : row;
+    const keys = rowKeys(original, rows.data.columns);
     try {
-      await api.deleteRow(connId, schema, table, keysFor(row));
+      await api.deleteRow(connId, schema, table, keys);
+      // drop any staged edits for the deleted row
+      const prefix = JSON.stringify(keys.map((k) => [k.column, k.value]));
+      setPending((prev) => new Map([...prev].filter(([k]) => !k.startsWith(`${prefix}|`))));
       toast("Row deleted", "ok");
       setDetail(null);
       setCount(null);
@@ -293,20 +381,42 @@ export function Browse({
                   </div>
                 )}
 
-                {rows.data && (
+                {displayed && (
                   <DataGrid
-                    result={rows.data}
+                    result={displayed.result}
                     startIndex={offset}
                     sortCol={sortCol}
                     sortDesc={sortDesc}
                     onSort={onSort}
                     onRowClick={setDetail}
                     pkCols={pkCols}
-                    onEditCell={canEditRows ? editCell : undefined}
+                    onEditCell={canEditRows ? stageEdit : undefined}
+                    dirtyCells={displayed.dirty}
                   />
                 )}
                 {rows.loading && rows.initial && (
                   <div className="glass-card" style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner size={20} /></div>
+                )}
+
+                {/* pending edits bar */}
+                {pending.size > 0 && (
+                  <div
+                    className="glass-card fade"
+                    style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, border: "1px solid rgba(255,193,94,0.35)", background: "rgba(255,193,94,0.06)" }}
+                  >
+                    <span style={{ width: 7, height: 7, borderRadius: 99, background: "#ffc15e", boxShadow: "0 0 8px rgba(255,193,94,0.8)", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                      {pending.size} unsaved edit{pending.size === 1 ? "" : "s"}
+                    </span>
+                    <span style={{ fontSize: 11.5, color: "var(--muted)" }}>saved together in one transaction</span>
+                    <div style={{ flex: 1 }} />
+                    <button className="btn btn-ghost btn-sm" onClick={() => setPending(new Map())} disabled={savingEdits}>
+                      Discard
+                    </button>
+                    <button className="btn btn-primary btn-sm" onClick={savePending} disabled={savingEdits}>
+                      {savingEdits ? <Spinner size={13} /> : <Icon.check w={13} />} Save <span style={{ opacity: 0.7, fontSize: 10.5 }}>⌘S</span>
+                    </button>
+                  </div>
                 )}
 
                 {/* footer / pagination */}

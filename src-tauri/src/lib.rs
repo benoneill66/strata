@@ -59,7 +59,7 @@ pub fn run() {
             commands::schema_graph,
             commands::table_rows,
             commands::table_count,
-            commands::update_row,
+            commands::update_rows,
             commands::insert_row,
             commands::delete_row,
             commands::run_query,
