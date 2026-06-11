@@ -90,6 +90,14 @@ export const api = {
   runQuery: (id: string, sql: string, maxRows: number): Promise<QueryResult> =>
     IS_TAURI ? invoke("run_query", { id, sql, maxRows }) : demo.wait(demo.demoRows(50, 0, [])),
 
+  explainQuery: (id: string, sql: string, analyze: boolean): Promise<string> =>
+    IS_TAURI ? invoke("explain_query", { id, sql, analyze }) : demo.wait(demo.demoPlan(analyze), 450),
+
+  diagnosePlan: (sql: string, plan: string): Promise<string> =>
+    IS_TAURI
+      ? invoke("diagnose_plan", { sql, plan })
+      : demo.wait("The Seq Scan on orders dominates (~70% of execution) because status has no index. CREATE INDEX ON orders (status) — or a partial index WHERE status = 'paid' — would let the join probe far fewer rows.", 900),
+
   aiStatus: (): Promise<AiStatus> =>
     IS_TAURI ? invoke("ai_status") : demo.wait({ available: true, path: "demo" }, 60),
 

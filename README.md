@@ -52,6 +52,12 @@ natural-language → SQL one tab away.
   drag, search, and click a table to light up everything it links to. Toggle
   between table-only, key-columns or all-columns detail; orphan tables are
   parked in a tidy grid.
+- **Explain** — a query-plan visualizer: EXPLAIN or EXPLAIN ANALYZE one click
+  from the editor, rendered as a tree with flame-style self-time bars, row
+  estimate-accuracy badges, disk-sort and loop markers, and expandable raw
+  node details. Analyze captures real timings by running the query inside a
+  transaction that always rolls back — safe even on writes. One more click
+  gets an AI diagnosis of the bottleneck and the most impactful fix.
 - **Query** — SQL editor (⌘↩ to run) for multi-statement scripts, result grid,
   elapsed/row chips, copy-as-CSV, and local query history.
 - **Ask AI** — type a question in plain English and Strata writes the SQL from

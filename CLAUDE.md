@@ -44,7 +44,11 @@ bar inserts the SQL into the editor and auto-runs it when it's read-only
 (`isReadOnly` in `views/Query.tsx`); write queries are inserted for review only.
 No API key — auth rides on the user's existing Claude CLI sign-in. `ai_status`
 reports availability (shown in Settings). The live path is covered by
-`tests/ai_smoke.rs` (gated behind `STRATA_TEST_AI=1`).
+`tests/ai_smoke.rs` (gated behind `STRATA_TEST_AI=1`). The same CLI pipeline
+powers `diagnose_plan` — the Diagnose button in the EXPLAIN visualizer
+(`components/PlanView.tsx`), which sends the SQL + plan JSON for a short
+bottleneck diagnosis. Plans come from `pg::explain`, which always wraps the
+statement in BEGIN/ROLLBACK so EXPLAIN ANALYZE on a write never lands.
 
 ## Toolchain — use Bun
 

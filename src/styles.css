@@ -346,6 +346,39 @@ body.no-native {
 }
 .cell-null-btn:hover { color: var(--text); border-color: rgba(79,168,255,0.5); }
 
+/* ---------- EXPLAIN plan visualizer ---------- */
+.plan-wrap {
+  overflow: auto; flex: 1; min-height: 0; padding: 6px;
+  border-radius: 14px; border: 1px solid var(--hair-soft);
+  background: rgba(0,0,0,0.22);
+}
+.plan-row {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  padding: 6px 12px 6px 8px; border-radius: 9px; overflow: hidden;
+  cursor: default; min-width: 0;
+}
+.plan-row:hover { background: rgba(255,255,255,0.045); }
+.plan-bar { position: absolute; left: 0; top: 0; bottom: 0; pointer-events: none; border-radius: 9px; }
+.plan-chev {
+  position: relative; display: flex; flex-shrink: 0; color: var(--muted);
+  transition: transform .15s ease; padding: 2px;
+}
+.plan-chev:hover { color: var(--text); }
+.plan-metric { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.plan-badge {
+  font-size: 9.5px; font-weight: 650; padding: 2px 7px; border-radius: 99px;
+  background: rgba(255,255,255,0.07); border: 1px solid var(--hair);
+  color: var(--muted); white-space: nowrap;
+}
+.plan-badge.warn {
+  background: rgba(255,193,94,0.12); border-color: rgba(255,193,94,0.4); color: #ffd9a0;
+}
+.plan-detail {
+  font-size: 10.5px; line-height: 1.65; color: var(--text);
+  padding: 6px 12px; margin: 2px 12px 6px 0;
+  border-left: 2px solid var(--hair); word-break: break-word;
+}
+
 /* ---------- schema explorer (ER diagram) ---------- */
 .erd-viewport {
   position: relative;

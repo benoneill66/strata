@@ -126,6 +126,33 @@ pub async fn simple(client: &Client, sql: &str, max_rows: usize) -> Result<Query
     })
 }
 
+// ---------- EXPLAIN (plan visualizer) ----------
+
+/// Run EXPLAIN over a statement and return the plan as a JSON document
+/// (FORMAT JSON comes back as a single row/column). Always wrapped in
+/// BEGIN/ROLLBACK: with `analyze` the statement actually executes, so a
+/// write being explained must never land — and a sneaky second statement
+/// in the buffer gets rolled back with it.
+pub async fn explain(client: &Client, sql: &str, analyze: bool) -> Result<String, String> {
+    let stmt = sql.trim().trim_end_matches(';').trim();
+    if stmt.is_empty() {
+        return Err("nothing to explain".to_string());
+    }
+    let opts = if analyze {
+        "ANALYZE, BUFFERS, FORMAT JSON"
+    } else {
+        "FORMAT JSON"
+    };
+    simple(client, "BEGIN", 1).await?;
+    let res = simple(client, &format!("EXPLAIN ({opts}) {stmt}"), 10).await;
+    let _ = simple(client, "ROLLBACK", 1).await;
+    res?.rows
+        .first()
+        .and_then(|r| r.first().cloned())
+        .flatten()
+        .ok_or_else(|| "no plan returned".to_string())
+}
+
 // ---------- row mutations (inline editing) ----------
 
 /// WHERE clause matching one row by its key (primary-key) columns. Like

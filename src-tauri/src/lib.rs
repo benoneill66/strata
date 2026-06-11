@@ -63,6 +63,8 @@ pub fn run() {
             commands::insert_row,
             commands::delete_row,
             commands::run_query,
+            commands::explain_query,
+            commands::diagnose_plan,
             commands::ai_status,
             commands::generate_sql,
         ])

@@ -160,6 +160,40 @@ export function demoGraph(schema: string): SchemaGraph {
   return schema === "auth" ? demoGraphAuth : demoGraphPublic;
 }
 
+// EXPLAIN plan for browser dev: a hash join with a slow filtered seq scan.
+export function demoPlan(analyze: boolean): string {
+  const t = (ms: number, rows: number, loops = 1) =>
+    analyze
+      ? { "Actual Startup Time": ms * 0.1, "Actual Total Time": ms, "Actual Rows": rows, "Actual Loops": loops }
+      : {};
+  const plan = {
+    "Node Type": "Hash Join", "Join Type": "Inner", "Startup Cost": 1840.0, "Total Cost": 5214.7,
+    "Plan Rows": 9800, "Plan Width": 72, "Hash Cond": "(o.user_id = u.id)", ...t(183.4, 84210),
+    Plans: [
+      {
+        "Node Type": "Seq Scan", "Relation Name": "orders", Alias: "o",
+        "Startup Cost": 0.0, "Total Cost": 3120.5, "Plan Rows": 9800, "Plan Width": 40,
+        Filter: "(status = 'paid'::text)", "Rows Removed by Filter": 306997, ...t(141.2, 84210),
+      },
+      {
+        "Node Type": "Hash", "Startup Cost": 1238.1, "Total Cost": 1238.1,
+        "Plan Rows": 48211, "Plan Width": 32, ...t(36.8, 48211),
+        Plans: [
+          {
+            "Node Type": "Index Scan", "Relation Name": "users", "Index Name": "users_pkey",
+            "Startup Cost": 0.42, "Total Cost": 1238.1, "Plan Rows": 48211, "Plan Width": 32, ...t(28.4, 48211),
+          },
+        ],
+      },
+    ],
+  };
+  return JSON.stringify(
+    [{ Plan: plan, "Planning Time": 0.41, ...(analyze ? { "Execution Time": 184.9, Triggers: [] } : {}) }],
+    null,
+    2
+  );
+}
+
 export function demoSuggestion(question: string) {
   return {
     sql: `-- ${question}\nSELECT plan, count(*) AS users, sum(mrr_cents) / 100.0 AS mrr\nFROM public.users\nGROUP BY plan\nORDER BY mrr DESC\nLIMIT 500;`,

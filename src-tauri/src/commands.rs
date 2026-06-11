@@ -429,6 +429,26 @@ pub async fn run_query(
     pg::simple(&client, &sql, max_rows.clamp(1, 10_000) as usize).await
 }
 
+/// EXPLAIN the statement and return the plan JSON. With `analyze` the query
+/// really executes (inside a transaction that always rolls back) to capture
+/// actual timings.
+#[tauri::command]
+pub async fn explain_query(
+    state: State<'_, AppState>,
+    id: String,
+    sql: String,
+    analyze: bool,
+) -> R<String> {
+    let client = client_for(&state, &id).await?;
+    pg::explain(&client, &sql, analyze).await
+}
+
+/// Feed a plan to the Claude CLI for a short bottleneck diagnosis.
+#[tauri::command]
+pub async fn diagnose_plan(sql: String, plan: String) -> R<String> {
+    ai::diagnose_plan(&sql, &plan).await
+}
+
 // ---------- AI ----------
 
 /// Compact schema dump for the AI prompt: one `schema.table(col type, …)` line

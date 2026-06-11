@@ -204,6 +204,27 @@ async fn end_to_end_against_local_postgres() {
     // and the connection is usable again after the rollback
     assert_eq!(pg::simple(&client, "SELECT 1", 1).await.unwrap().rows.len(), 1);
 
+    // ---- EXPLAIN visualizer ----
+
+    // plan comes back as one JSON document (trailing semicolons tolerated)
+    let plan = pg::explain(&client, "SELECT * FROM strata_test WHERE n > 1;", false)
+        .await
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&plan).unwrap();
+    assert!(parsed[0]["Plan"]["Node Type"].is_string());
+    assert!(parsed[0].get("Execution Time").is_none()); // estimates only
+
+    // ANALYZE really executes — and must roll back, even for a write
+    let plan = pg::explain(&client, "UPDATE strata_test SET n = n + 1000", true)
+        .await
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&plan).unwrap();
+    assert!(parsed[0]["Execution Time"].is_number());
+    let res = pg::simple(&client, "SELECT count(*) FROM strata_test WHERE n >= 1000", 1)
+        .await
+        .unwrap();
+    assert_eq!(res.rows[0][0].as_deref(), Some("0")); // the update did not land
+
     // delete the inserted row
     let sql = pg::delete_sql("public", "strata_test", &[cv("id", edith_id.as_deref())]).unwrap();
     assert_eq!(pg::exec_expect(&client, &sql, 1).await.unwrap(), 1);

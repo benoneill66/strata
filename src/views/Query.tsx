@@ -6,6 +6,7 @@ import { Icon } from "../lib/icons";
 import type { QueryResult } from "../lib/types";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
+import { PlanView } from "../components/PlanView";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
 
 /** A query is safe to auto-run if it only reads. */
@@ -53,24 +54,51 @@ export function Query({
   const [asking, setAsking] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
 
+  // EXPLAIN visualizer: plan JSON + whether it carries real (ANALYZE) timings
+  const [plan, setPlan] = useState<{ json: string; analyzed: boolean; sql: string } | null>(null);
+  const [explaining, setExplaining] = useState(false);
+
+  function pushHistory(q: string) {
+    setHistory((prev) => {
+      const next = [q, ...prev.filter((h) => h !== q)].slice(0, MAX_HISTORY);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
   async function runSql(q: string) {
     q = q.trim();
     if (!q || !connId) return;
     setRunning(true);
     setError(null);
+    setPlan(null);
     try {
       const res = await api.runQuery(connId, q, 2000);
       setResult(res);
-      setHistory((prev) => {
-        const next = [q, ...prev.filter((h) => h !== q)].slice(0, MAX_HISTORY);
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-        return next;
-      });
+      pushHistory(q);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setResult(null);
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function explain(analyze: boolean) {
+    const q = sql.trim();
+    if (!q || !connId || explaining) return;
+    setExplaining(true);
+    setError(null);
+    try {
+      const json = await api.explainQuery(connId, q, analyze);
+      setPlan({ json, analyzed: analyze, sql: q });
+      setResult(null);
+      pushHistory(q);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPlan(null);
+    } finally {
+      setExplaining(false);
     }
   }
 
@@ -179,6 +207,22 @@ export function Query({
             {running ? <Spinner size={13} /> : <Icon.play w={13} />} Run
             <span style={{ opacity: 0.6, fontSize: 11, fontWeight: 500 }}>⌘↩</span>
           </button>
+          <button
+            className="btn btn-sm"
+            disabled={explaining || running || !sql.trim()}
+            onClick={() => explain(false)}
+            title="Show the planner's strategy without running the query"
+          >
+            {explaining ? <Spinner size={13} /> : <Icon.graph w={13} />} Explain
+          </button>
+          <button
+            className="btn btn-sm"
+            disabled={explaining || running || !sql.trim()}
+            onClick={() => explain(true)}
+            title="EXPLAIN ANALYZE — executes the query in a rolled-back transaction to capture real timings"
+          >
+            <Icon.zap w={13} /> Analyze
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setShowHistory(!showHistory)}>
             <Icon.history w={13} /> History {history.length > 0 && `(${history.length})`}
           </button>
@@ -220,13 +264,16 @@ export function Query({
           {error}
         </div>
       )}
+      {plan && !error && (
+        <PlanView json={plan.json} analyzed={plan.analyzed} sql={plan.sql} aiAvailable={!!ai.data?.available} />
+      )}
       {result && result.columns.length > 0 && <DataGrid result={result} />}
       {result && result.columns.length === 0 && !error && (
         <div className="glass-card rise" style={{ padding: "13px 15px", color: "var(--ok)", fontSize: 13 }}>
           OK — {num(result.affected ?? 0)} row{(result.affected ?? 0) === 1 ? "" : "s"} affected · {elapsed(result.elapsed_ms)}
         </div>
       )}
-      {!result && !error && (
+      {!result && !plan && !error && (
         <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--muted)", fontSize: 13 }}>
           <div style={{ textAlign: "center" }}>
             <div style={{ opacity: 0.4, display: "flex", justifyContent: "center", marginBottom: 10 }}><Icon.terminal w={22} /></div>

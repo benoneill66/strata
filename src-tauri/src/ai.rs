@@ -153,6 +153,30 @@ fn extract_json(text: &str) -> Option<serde_json::Value> {
     serde_json::from_str(&text[start..=end]).ok()
 }
 
+/// Ask the model to diagnose an EXPLAIN plan: dominant bottleneck + one
+/// concrete fix. Plain text out — it renders in a small card, not a chat.
+pub async fn diagnose_plan(sql: &str, plan_json: &str) -> Result<String, String> {
+    const MAX_PLAN: usize = 20_000;
+    let mut plan = plan_json.to_string();
+    if plan.len() > MAX_PLAN {
+        plan.truncate(MAX_PLAN);
+        plan.push_str("\n… (plan truncated)");
+    }
+    let system = "You are a senior PostgreSQL performance engineer. The user sends a SQL query \
+         and its EXPLAIN plan as JSON (EXPLAIN ANALYZE when actual times are present). \
+         Diagnose it: name the dominant bottleneck node and why it dominates, then give the \
+         single most impactful concrete fix — an exact index to create, a query rewrite, or a \
+         planner hint. If the plan is already efficient, say so plainly. \
+         Respond in plain text (no markdown, no JSON), at most 4 short sentences.";
+    let question = format!("SQL:\n{sql}\n\nPlan:\n{plan}");
+    let text = run_claude(system, &question).await?;
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("Claude returned an empty diagnosis.".into());
+    }
+    Ok(text)
+}
+
 /// Ask the model for a single SQL query answering `question` against `schema_ctx`.
 pub async fn generate_sql(
     pg_version: &str,
