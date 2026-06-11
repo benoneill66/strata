@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c3d6e"/>
+      <stop offset="55%" stop-color="#15314f"/>
+      <stop offset="100%" stop-color="#0d3b3f"/>
+    </linearGradient>
+    <linearGradient id="layer" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4fa8ff"/>
+      <stop offset="100%" stop-color="#38d9c4"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- squircle base with macOS-style margin -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="6"/>
+
+  <!-- strata: three stacked layers -->
+  <g filter="url(#soft)">
+    <path d="M512 268 L766 395 L512 522 L258 395 Z" fill="url(#layer)"/>
+    <path d="M258 512 L361 460 L512 536 L663 460 L766 512 L512 639 Z" fill="url(#layer)" opacity="0.72"/>
+    <path d="M258 629 L361 577 L512 653 L663 577 L766 629 L512 756 Z" fill="url(#layer)" opacity="0.45"/>
+  </g>
+</svg>

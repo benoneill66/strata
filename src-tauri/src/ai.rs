@@ -1,0 +1,201 @@
+use std::process::Stdio;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use serde::Serialize;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+
+/// Generous cap so a wedged CLI can't hang the command forever, but slow model
+/// turns over a big schema still complete.
+const TIMEOUT_SECS: u64 = 120;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SqlSuggestion {
+    pub sql: String,
+    pub explanation: String,
+}
+
+/// Locate the `claude` CLI. GUI apps launched from Finder don't inherit the
+/// shell PATH, so probe common install locations first, then fall back to a
+/// login shell. Resolved once per process. (Mirrors Sentinel's resolver.)
+fn claude_bin() -> Option<&'static str> {
+    static BIN: OnceLock<Option<String>> = OnceLock::new();
+    BIN.get_or_init(resolve_claude).as_deref()
+}
+
+fn resolve_claude() -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        format!("{home}/.local/bin/claude"),
+        format!("{home}/.claude/local/claude"),
+        "/opt/homebrew/bin/claude".to_string(),
+        "/usr/local/bin/claude".to_string(),
+        format!("{home}/.bun/bin/claude"),
+        format!("{home}/.npm-global/bin/claude"),
+    ];
+    for c in candidates {
+        if std::path::Path::new(&c).exists() {
+            return Some(c);
+        }
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    if let Ok(out) = std::process::Command::new(&shell)
+        .args(["-lc", "command -v claude"])
+        .output()
+    {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() && std::path::Path::new(&p).exists() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Whether the Claude CLI is available, and where. Surfaced in Settings.
+pub fn cli_status() -> (bool, String) {
+    match claude_bin() {
+        Some(p) => (true, p.to_string()),
+        None => (false, String::new()),
+    }
+}
+
+/// Run one tool-less `claude -p` turn: `system` as the system prompt, `question`
+/// on stdin. Returns the model's text (the `result` field of the JSON envelope).
+async fn run_claude(system: &str, question: &str) -> Result<String, String> {
+    let bin = claude_bin().ok_or(
+        "Claude CLI not found. Install it (npm i -g @anthropic-ai/claude-code) and sign in.",
+    )?;
+
+    let mut cmd = Command::new(bin);
+    cmd.arg("-p")
+        .arg("--output-format")
+        .arg("json")
+        // Pure text generation: replace the agent system prompt, disable all
+        // tools, and crucially `--strict-mcp-config` so NONE of the user's MCP
+        // servers load. Without it the CLI would happily answer a data question
+        // via e.g. RevenueCat instead of writing SQL — and loading those servers
+        // is also what made the first call hang.
+        .arg("--strict-mcp-config")
+        .arg("--allowed-tools")
+        .arg("")
+        .arg("--system-prompt")
+        .arg(system)
+        // Neutral cwd so a project CLAUDE.md doesn't bias the prompt.
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // GUI launch has a slim PATH; give the CLI a sane one for any shell-outs.
+        .env(
+            "PATH",
+            format!(
+                "{}/.local/bin:{}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+                std::env::var("HOME").unwrap_or_default(),
+                std::env::var("HOME").unwrap_or_default()
+            ),
+        );
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Could not launch Claude CLI: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(question.as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    }
+
+    let output = match tokio::time::timeout(
+        Duration::from_secs(TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Err(format!("Claude CLI failed: {e}")),
+        Err(_) => return Err("Claude CLI timed out.".into()),
+    };
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let msg = err.trim();
+        return Err(if msg.is_empty() {
+            "Claude CLI exited with an error.".into()
+        } else {
+            format!("Claude CLI: {msg}")
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // `--output-format json` wraps the model text in a `result` field.
+    let env: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Could not parse Claude response: {e}"))?;
+    let text = env
+        .get("result")
+        .and_then(|v| v.as_str())
+        .ok_or("Claude returned no result")?;
+    Ok(text.to_string())
+}
+
+/// Pull the first JSON object out of model text (handles ```json fences and
+/// stray prose around it).
+fn extract_json(text: &str) -> Option<serde_json::Value> {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+        return Some(v);
+    }
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str(&text[start..=end]).ok()
+}
+
+/// Ask the model for a single SQL query answering `question` against `schema_ctx`.
+pub async fn generate_sql(
+    pg_version: &str,
+    db: &str,
+    schema_ctx: &str,
+    question: &str,
+) -> Result<SqlSuggestion, String> {
+    let system = format!(
+        "You are a senior PostgreSQL analyst with NO tools and NO live database access. \
+         Do NOT attempt to answer the question with real data or any external source — your ONLY \
+         job is to translate the question into SQL. Given a database schema and a question, \
+         write exactly ONE PostgreSQL query that answers it.\n\
+         Rules:\n\
+         - Target PostgreSQL {pg_version}. Use ONLY tables and columns that appear in the schema below; never invent names.\n\
+         - Schema-qualify tables (e.g. public.users) when helpful. Quote identifiers only if they need it.\n\
+         - Default to a read-only SELECT. Do NOT write INSERT/UPDATE/DELETE/DDL unless the question explicitly asks to modify data.\n\
+         - For row-returning queries add a sensible LIMIT (<= 500) unless the question is an aggregate/count.\n\
+         - Prefer clear, correct SQL over clever SQL. Use ILIKE for case-insensitive text matching.\n\
+         Respond with ONLY a JSON object and nothing else: {{\"sql\": \"<the query>\", \"explanation\": \"<one short sentence>\"}}.\n\n\
+         Database \"{db}\". Schema:\n{schema_ctx}"
+    );
+
+    let text = run_claude(&system, question).await?;
+    let v = extract_json(&text).ok_or_else(|| {
+        format!(
+            "Claude did not return usable SQL. It said: {}",
+            text.chars().take(200).collect::<String>()
+        )
+    })?;
+    let sql = v
+        .get("sql")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if sql.is_empty() {
+        return Err("Claude returned an empty query.".into());
+    }
+    let explanation = v
+        .get("explanation")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(SqlSuggestion { sql, explanation })
+}
