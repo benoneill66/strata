@@ -14,7 +14,11 @@ editor can run multi-statement scripts. TLS uses native-tls with verification
 disabled (pgAdmin-style "prefer/require" semantics); `prefer` falls back to
 plaintext for local servers. There is no parameter binding on this protocol —
 grid filters are built via `quote_ident`/`quote_lit` in `pg::filter_sql`; keep
-any new SQL construction inside `pg.rs` and reuse those helpers.
+any new SQL construction inside `pg.rs` and reuse those helpers. Row mutations
+(inline editing in Browse) are built by `pg::update_sql`/`insert_sql`/
+`delete_sql` — rows are matched on their primary-key values in text form — and
+single-row writes run through `pg::exec_expect`, which wraps the statement in
+a transaction and rolls back unless exactly one row was touched.
 
 Live connections are held in `pg::Pool` (HashMap of `tokio_postgres::Client`
 keyed by profile id) managed in `AppState`. Saved connection profiles —

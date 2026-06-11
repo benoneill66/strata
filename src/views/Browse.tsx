@@ -5,7 +5,7 @@ import { useAsync } from "../lib/hooks";
 import { bytes, elapsed, estRows, num } from "../lib/format";
 import { Icon } from "../lib/icons";
 import { FILTER_OPS, TABLE_KINDS } from "../lib/types";
-import type { Filter, FilterOp } from "../lib/types";
+import type { CellValue, ColumnInfo, Filter, FilterOp } from "../lib/types";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
@@ -41,6 +41,7 @@ export function Browse({
   const [count, setCount] = useState<number | null>(null);
   const [counting, setCounting] = useState(false);
   const [detail, setDetail] = useState<(string | null)[] | null>(null);
+  const [inserting, setInserting] = useState(false);
 
   // Switching database reopens the connection against a different catalog, so
   // drop the current schema/table selection and let the defaults re-pick.
@@ -73,6 +74,7 @@ export function Browse({
     setFilters([]);
     setCount(null);
     setDetail(null);
+    setInserting(false);
   }
 
   const columns = useAsync(
@@ -117,6 +119,54 @@ export function Browse({
   const pkCols = useMemo(() => new Set((columns.data ?? []).filter((c) => c.is_pk).map((c) => c.name)), [columns.data]);
   const tableInfo = tables.data?.find((t) => t.name === table) ?? null;
   const filteredTables = (tables.data ?? []).filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
+
+  // Editing needs a real table (not a view) and a primary key to address rows.
+  const isRealTable = tableInfo?.kind === "r" || tableInfo?.kind === "p";
+  const canEditRows = isRealTable && pkCols.size > 0;
+
+  /** Primary-key values identifying a row, as displayed in the grid. */
+  function keysFor(row: (string | null)[]): CellValue[] {
+    const cols = rows.data?.columns ?? [];
+    return cols
+      .map((column, i) => ({ column, value: row[i] }))
+      .filter((kv) => pkCols.has(kv.column));
+  }
+
+  async function editCell(rowIdx: number, colIdx: number, value: string | null) {
+    if (!connId || !schema || !table || !rows.data) return;
+    const row = rows.data.rows[rowIdx];
+    const column = rows.data.columns[colIdx];
+    try {
+      await api.updateRow(connId, schema, table, keysFor(row), [{ column, value }]);
+      toast(`Updated ${column}`, "ok");
+      rows.reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+      throw e; // keep the cell editor open
+    }
+  }
+
+  async function deleteRow(row: (string | null)[]) {
+    if (!connId || !schema || !table) return;
+    try {
+      await api.deleteRow(connId, schema, table, keysFor(row));
+      toast("Row deleted", "ok");
+      setDetail(null);
+      setCount(null);
+      rows.reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  }
+
+  async function insertRow(values: CellValue[]) {
+    if (!connId || !schema || !table) return;
+    await api.insertRow(connId, schema, table, values);
+    toast("Row inserted", "ok");
+    setInserting(false);
+    setCount(null);
+    rows.reload();
+  }
 
   if (!connId) {
     return hasConnections ? (
@@ -216,6 +266,11 @@ export function Browse({
                 <button className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Data</button>
                 <button className={tab === "structure" ? "on" : ""} onClick={() => setTab("structure")}>Structure</button>
               </div>
+              {isRealTable && tab === "data" && (
+                <button className="btn btn-sm" onClick={() => setInserting(true)}>
+                  <Icon.plus w={13} /> Row
+                </button>
+              )}
               <button className="btn btn-sm" onClick={() => rows.reload()}>
                 {rows.loading ? <Spinner size={13} /> : <Icon.refresh w={13} />}
               </button>
@@ -247,6 +302,7 @@ export function Browse({
                     onSort={onSort}
                     onRowClick={setDetail}
                     pkCols={pkCols}
+                    onEditCell={canEditRows ? editCell : undefined}
                   />
                 )}
                 {rows.loading && rows.initial && (
@@ -284,7 +340,17 @@ export function Browse({
 
       {/* row detail drawer */}
       {detail && rows.data && (
-        <RowDrawer columns={rows.data.columns} row={detail} onClose={() => setDetail(null)} />
+        <RowDrawer
+          columns={rows.data.columns}
+          row={detail}
+          onClose={() => setDetail(null)}
+          onDelete={canEditRows ? () => deleteRow(detail) : undefined}
+        />
+      )}
+
+      {/* new row drawer (gated on loaded columns — InsertDrawer seeds its field state from them once) */}
+      {inserting && (columns.data?.length ?? 0) > 0 && (
+        <InsertDrawer columns={columns.data!} onClose={() => setInserting(false)} onInsert={insertRow} />
       )}
     </div>
   );
@@ -400,7 +466,20 @@ function StructurePanel({ columns, loading }: { columns: { name: string; data_ty
 
 // ---------- row detail drawer ----------
 
-function RowDrawer({ columns, row, onClose }: { columns: string[]; row: (string | null)[]; onClose: () => void }) {
+function RowDrawer({
+  columns,
+  row,
+  onClose,
+  onDelete,
+}: {
+  columns: string[];
+  row: (string | null)[];
+  onClose: () => void;
+  onDelete?: () => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -408,6 +487,21 @@ function RowDrawer({ columns, row, onClose }: { columns: string[]; row: (string 
   }, [onClose]);
 
   const json = JSON.stringify(Object.fromEntries(columns.map((c, i) => [c, row[i]])), null, 2);
+
+  async function del() {
+    if (!onDelete) return;
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await onDelete(); // closes the drawer on success
+    } finally {
+      setDeleting(false);
+      setConfirming(false);
+    }
+  }
 
   // Portal to <body> — see Dialog in components/ui.tsx.
   return createPortal(
@@ -418,6 +512,11 @@ function RowDrawer({ columns, row, onClose }: { columns: string[]; row: (string 
           <div style={{ fontSize: 15, fontWeight: 680 }}>Row detail</div>
           <div style={{ display: "flex", gap: 8 }}>
             <CopyBtn text={json} label="Copy JSON" />
+            {onDelete && (
+              <button className="btn btn-danger btn-sm" onClick={del} disabled={deleting} onMouseLeave={() => setConfirming(false)}>
+                {deleting ? <Spinner size={13} /> : <Icon.trash w={13} />} {confirming ? "Confirm delete" : "Delete"}
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ padding: 6 }}><Icon.close w={15} /></button>
           </div>
         </div>
@@ -431,6 +530,124 @@ function RowDrawer({ columns, row, onClose }: { columns: string[]; row: (string 
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// ---------- new row drawer ----------
+
+type InsertMode = "auto" | "value" | "null";
+
+/** Per-column entry for a new row. "auto" omits the column so the database
+    applies its default (or NULL for nullable columns); required columns with
+    no default start in "value" mode. */
+function InsertDrawer({
+  columns,
+  onClose,
+  onInsert,
+}: {
+  columns: ColumnInfo[];
+  onClose: () => void;
+  onInsert: (values: CellValue[]) => Promise<void>;
+}) {
+  const [fields, setFields] = useState<Record<string, { mode: InsertMode; draft: string }>>(() =>
+    Object.fromEntries(
+      columns.map((c) => [c.name, { mode: c.default || c.nullable ? ("auto" as InsertMode) : "value", draft: "" }])
+    )
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function setField(name: string, patch: Partial<{ mode: InsertMode; draft: string }>) {
+    setFields((f) => ({ ...f, [name]: { ...f[name], ...patch } }));
+  }
+
+  async function save() {
+    const values: CellValue[] = [];
+    for (const c of columns) {
+      const f = fields[c.name];
+      if (f.mode === "value") values.push({ column: c.name, value: f.draft });
+      if (f.mode === "null") values.push({ column: c.name, value: null });
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onInsert(values); // closes the drawer on success
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return createPortal(
+    <>
+      <div className="drawer-scrim no-drag" onClick={onClose} />
+      <div className="drawer no-drag">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 12px" }}>
+          <div style={{ fontSize: 15, fontWeight: 680 }}>New row</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+              {saving ? <Spinner size={13} /> : <Icon.check w={13} />} Insert
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ padding: 6 }}><Icon.close w={15} /></button>
+          </div>
+        </div>
+        {error && (
+          <div style={{ margin: "0 20px 4px", padding: "10px 13px", borderRadius: 12, color: "var(--error)", fontSize: 12.5, border: "1px solid rgba(255,93,122,0.3)", background: "rgba(255,93,122,0.07)" }}>
+            {error}
+          </div>
+        )}
+        <div style={{ overflowY: "auto", flex: 1, padding: "8px 20px 20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {columns.map((c) => {
+              const f = fields[c.name];
+              return (
+                <div key={c.name} className="glass-card" style={{ padding: "10px 13px", borderRadius: 13 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+                    <span className="label" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      {c.is_pk && <span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span>}
+                      {c.name}
+                    </span>
+                    <span className="mono" style={{ fontSize: 10.5, color: "var(--accent-2)" }}>{c.data_type}</span>
+                    <div style={{ flex: 1 }} />
+                    <div className="seg" style={{ fontSize: 11 }}>
+                      <button className={f.mode === "auto" ? "on" : ""} onClick={() => setField(c.name, { mode: "auto" })} title={c.default ? `Default: ${c.default}` : c.nullable ? "Leaves the column NULL" : "No default — the insert will fail unless set"}>
+                        auto
+                      </button>
+                      <button className={f.mode === "value" ? "on" : ""} onClick={() => setField(c.name, { mode: "value" })}>value</button>
+                      {c.nullable && (
+                        <button className={f.mode === "null" ? "on" : ""} onClick={() => setField(c.name, { mode: "null" })}>null</button>
+                      )}
+                    </div>
+                  </div>
+                  {f.mode === "value" ? (
+                    <input
+                      className="input mono"
+                      style={{ padding: "7px 10px", fontSize: 12.5 }}
+                      placeholder="value"
+                      value={f.draft}
+                      onChange={(e) => setField(c.name, { draft: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && save()}
+                    />
+                  ) : (
+                    <div className="mono" style={{ fontSize: 12, color: "var(--muted)", fontStyle: "italic" }}>
+                      {f.mode === "null" ? "NULL" : c.default ? c.default : c.nullable ? "NULL (no default)" : "required — set a value"}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

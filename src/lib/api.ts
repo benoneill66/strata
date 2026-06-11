@@ -1,4 +1,4 @@
-import type { AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
+import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -77,6 +77,15 @@ export const api = {
 
   tableCount: (id: string, schema: string, table: string, filters: Filter[]): Promise<number> =>
     IS_TAURI ? invoke("table_count", { id, schema, table, filters }) : demo.wait(48211, 700),
+
+  updateRow: (id: string, schema: string, table: string, keys: CellValue[], changes: CellValue[]): Promise<number> =>
+    IS_TAURI ? invoke("update_row", { id, schema, table, keys, changes }) : demo.wait(1, 250),
+
+  insertRow: (id: string, schema: string, table: string, values: CellValue[]): Promise<number> =>
+    IS_TAURI ? invoke("insert_row", { id, schema, table, values }) : demo.wait(1, 250),
+
+  deleteRow: (id: string, schema: string, table: string, keys: CellValue[]): Promise<number> =>
+    IS_TAURI ? invoke("delete_row", { id, schema, table, keys }) : demo.wait(1, 250),
 
   runQuery: (id: string, sql: string, maxRows: number): Promise<QueryResult> =>
     IS_TAURI ? invoke("run_query", { id, sql, maxRows }) : demo.wait(demo.demoRows(50, 0, [])),

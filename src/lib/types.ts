@@ -52,6 +52,12 @@ export interface Filter {
 
 export type FilterOp = "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "null" | "notnull";
 
+/** One column/value pair in a row mutation; null means SQL NULL. */
+export interface CellValue {
+  column: string;
+  value: string | null;
+}
+
 export const FILTER_OPS: { id: FilterOp; label: string; needsValue: boolean }[] = [
   { id: "contains", label: "contains", needsValue: true },
   { id: "eq", label: "=", needsValue: true },

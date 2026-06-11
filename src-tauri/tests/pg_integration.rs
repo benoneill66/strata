@@ -1,8 +1,39 @@
 // Integration tests against a local Postgres (skipped silently if none is
 // listening on localhost:5432). Run: cargo test -- --nocapture
 
-use strata_lib::models::{ConnectionProfile, Filter};
+use strata_lib::models::{CellValue, ConnectionProfile, Filter};
 use strata_lib::pg;
+
+fn cv(column: &str, value: Option<&str>) -> CellValue {
+    CellValue { column: column.into(), value: value.map(|v| v.into()) }
+}
+
+#[test]
+fn mutation_sql_builders() {
+    // update: quoted idents, escaped literals, text-form key match, NULL set
+    let sql = pg::update_sql(
+        "public",
+        "users",
+        &[cv("id", Some("42"))],
+        &[cv("name", Some("o'brien")), cv("note", None)],
+    )
+    .unwrap();
+    assert_eq!(
+        sql,
+        "UPDATE \"public\".\"users\" SET \"name\" = 'o''brien', \"note\" = NULL WHERE \"id\"::text = '42'"
+    );
+
+    // NULL key matches with IS NULL; no keys is an error
+    let sql = pg::delete_sql("public", "t", &[cv("k", None)]).unwrap();
+    assert_eq!(sql, "DELETE FROM \"public\".\"t\" WHERE \"k\" IS NULL");
+    assert!(pg::update_sql("public", "t", &[], &[cv("a", None)]).is_err());
+    assert!(pg::update_sql("public", "t", &[cv("k", Some("1"))], &[]).is_err());
+
+    // insert: explicit values, NULLs, and the all-defaults form
+    let sql = pg::insert_sql("public", "t", &[cv("a", Some("1")), cv("b", None)]);
+    assert_eq!(sql, "INSERT INTO \"public\".\"t\" (\"a\", \"b\") VALUES ('1', NULL)");
+    assert_eq!(pg::insert_sql("public", "t", &[]), "INSERT INTO \"public\".\"t\" DEFAULT VALUES");
+}
 
 fn local_profile() -> ConnectionProfile {
     ConnectionProfile {
@@ -103,6 +134,54 @@ async fn end_to_end_against_local_postgres() {
     // db error surfaces as a readable message
     let err = pg::simple(&client, "SELECT * FROM does_not_exist_xyz", 10).await.unwrap_err();
     assert!(err.contains("does_not_exist_xyz"));
+
+    // ---- inline editing round-trip ----
+
+    // insert (typed literals cast to int/jsonb), then read the row back
+    let sql = pg::insert_sql(
+        "public",
+        "strata_test",
+        &[cv("name", Some("edith")), cv("n", Some("7")), cv("meta", None)],
+    );
+    assert_eq!(pg::simple(&client, &sql, 1).await.unwrap().affected, Some(1));
+    let res = pg::simple(&client, "SELECT id, meta FROM strata_test WHERE name = 'edith'", 10)
+        .await
+        .unwrap();
+    assert_eq!(res.rows.len(), 1);
+    assert_eq!(res.rows[0][1], None);
+    let edith_id = res.rows[0][0].clone();
+
+    // update by uuid pk matched on its text form, guarded to exactly one row
+    let sql = pg::update_sql(
+        "public",
+        "strata_test",
+        &[cv("id", edith_id.as_deref())],
+        &[cv("n", Some("99")), cv("name", None)],
+    )
+    .unwrap();
+    assert_eq!(pg::exec_expect(&client, &sql, 1).await.unwrap(), 1);
+    let res = pg::simple(&client, "SELECT name FROM strata_test WHERE n = 99", 10).await.unwrap();
+    assert_eq!(res.rows.len(), 1);
+    assert_eq!(res.rows[0][0], None);
+
+    // guard: a write matching 0 rows rolls back and errors
+    let sql = pg::update_sql(
+        "public",
+        "strata_test",
+        &[cv("id", Some("00000000-0000-4000-8000-000000000000"))],
+        &[cv("n", Some("1"))],
+    )
+    .unwrap();
+    let err = pg::exec_expect(&client, &sql, 1).await.unwrap_err();
+    assert!(err.contains("matched 0 rows"));
+    // and the connection is usable again after the rollback
+    assert_eq!(pg::simple(&client, "SELECT 1", 1).await.unwrap().rows.len(), 1);
+
+    // delete the inserted row
+    let sql = pg::delete_sql("public", "strata_test", &[cv("id", edith_id.as_deref())]).unwrap();
+    assert_eq!(pg::exec_expect(&client, &sql, 1).await.unwrap(), 1);
+    let res = pg::simple(&client, "SELECT count(*) FROM strata_test", 1).await.unwrap();
+    assert_eq!(res.rows[0][0].as_deref(), Some("4"));
 
     pg::simple(&client, "DROP TABLE strata_test", 1).await.unwrap();
 }

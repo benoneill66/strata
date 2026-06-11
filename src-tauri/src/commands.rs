@@ -7,8 +7,8 @@ use tokio_postgres::Client;
 
 use crate::ai::{self, SqlSuggestion};
 use crate::models::{
-    AiStatus, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge, GraphNode,
-    QueryResult, SchemaGraph, SchemaInfo, Settings, TableInfo,
+    AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge,
+    GraphNode, QueryResult, SchemaGraph, SchemaInfo, Settings, TableInfo,
 };
 use crate::pg::{self, Pool};
 
@@ -373,6 +373,51 @@ pub async fn table_count(
         .first()
         .map(|r| cell(r, 0).parse().unwrap_or(0))
         .ok_or_else(|| "count failed".to_string())
+}
+
+// ---------- row mutations (inline editing) ----------
+
+/// Update one row, matched by its primary-key values as displayed in the grid.
+/// Wrapped in a transaction that rolls back unless exactly one row matched.
+#[tauri::command]
+pub async fn update_row(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    keys: Vec<CellValue>,
+    changes: Vec<CellValue>,
+) -> R<u64> {
+    let client = client_for(&state, &id).await?;
+    let sql = pg::update_sql(&schema, &table, &keys, &changes)?;
+    pg::exec_expect(&client, &sql, 1).await
+}
+
+#[tauri::command]
+pub async fn insert_row(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    values: Vec<CellValue>,
+) -> R<u64> {
+    let client = client_for(&state, &id).await?;
+    let sql = pg::insert_sql(&schema, &table, &values);
+    let res = pg::simple(&client, &sql, 1).await?;
+    Ok(res.affected.unwrap_or(0))
+}
+
+#[tauri::command]
+pub async fn delete_row(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    keys: Vec<CellValue>,
+) -> R<u64> {
+    let client = client_for(&state, &id).await?;
+    let sql = pg::delete_sql(&schema, &table, &keys)?;
+    pg::exec_expect(&client, &sql, 1).await
 }
 
 #[tauri::command]

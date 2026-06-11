@@ -41,6 +41,11 @@ natural-language → SQL one tab away.
   column sorting, stackable filters (contains / = / ≠ / ranges / null), exact
   counts on demand, pagination, a structure tab (types, PKs, defaults) and a
   row-detail drawer with copy-as-JSON.
+- **Edit** — tables with a primary key are editable in place: double-click a
+  cell to change it (with one-tap NULL), add rows from a column-aware drawer
+  that knows defaults and nullability, and delete rows from the detail drawer.
+  Every write is keyed on the primary key and rolled back unless it touches
+  exactly one row.
 - **Schema** — an interactive ER diagram of the whole schema: force-laid-out
   table cards with primary/foreign-key markers and foreign-key edges. Pan, zoom,
   drag, search, and click a table to light up everything it links to. Toggle

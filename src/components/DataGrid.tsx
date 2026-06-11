@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from "react";
 import type { QueryResult } from "../lib/types";
+import { Spinner } from "./ui";
 
 /** Shared results grid: sticky header, mono cells, dimmed NULLs, optional
-    sortable headers and row click-through. Used by Browse and Query. */
+    sortable headers, row click-through and double-click cell editing.
+    Used by Browse and Query. */
 export function DataGrid({
   result,
   startIndex = 0,
@@ -10,6 +13,7 @@ export function DataGrid({
   onSort,
   onRowClick,
   pkCols,
+  onEditCell,
 }: {
   result: QueryResult;
   startIndex?: number;
@@ -18,7 +22,48 @@ export function DataGrid({
   onSort?: (col: string) => void;
   onRowClick?: (row: (string | null)[]) => void;
   pkCols?: Set<string>;
+  /** Enables double-click editing. Resolves when the write lands; throw to
+      keep the editor open (the caller surfaces the error). */
+  onEditCell?: (rowIndex: number, colIndex: number, value: string | null) => Promise<void>;
 }) {
+  const [edit, setEdit] = useState<{ r: number; c: number; draft: string; saving: boolean } | null>(null);
+  // Single click opens the row drawer, double click edits a cell — when both
+  // are wired, delay the click so a double-click can cancel it.
+  const clickTimer = useRef<number | null>(null);
+
+  useEffect(() => setEdit(null), [result]);
+  useEffect(() => () => { if (clickTimer.current) window.clearTimeout(clickTimer.current); }, []);
+
+  function rowClick(row: (string | null)[]) {
+    if (!onRowClick) return;
+    if (!onEditCell) {
+      onRowClick(row);
+      return;
+    }
+    if (clickTimer.current) window.clearTimeout(clickTimer.current);
+    clickTimer.current = window.setTimeout(() => onRowClick(row), 240);
+  }
+
+  function startEdit(r: number, c: number, cell: string | null) {
+    if (clickTimer.current) {
+      window.clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    setEdit({ r, c, draft: cell ?? "", saving: false });
+  }
+
+  async function commit(value: string | null) {
+    if (!edit || !onEditCell || edit.saving) return;
+    setEdit({ ...edit, saving: true });
+    try {
+      await onEditCell(edit.r, edit.c, value);
+      setEdit(null);
+    } catch {
+      // error already toasted by the caller — keep editing
+      setEdit((e) => (e ? { ...e, saving: false } : null));
+    }
+  }
+
   if (!result.columns.length) return null;
   return (
     <div className="data-wrap no-drag">
@@ -46,13 +91,47 @@ export function DataGrid({
         </thead>
         <tbody>
           {result.rows.map((row, i) => (
-            <tr key={i} onClick={onRowClick ? () => onRowClick(row) : undefined} style={onRowClick ? { cursor: "default" } : undefined}>
+            <tr key={i} onClick={onRowClick ? () => rowClick(row) : undefined} style={onRowClick ? { cursor: "default" } : undefined}>
               <td className="idx">{startIndex + i + 1}</td>
-              {row.map((cell, j) => (
-                <td key={j} className={cell === null ? "null" : ""} title={cell ?? "NULL"}>
-                  {cell === null ? "NULL" : cell === "" ? <span style={{ opacity: 0.4 }}>∅</span> : cell}
-                </td>
-              ))}
+              {row.map((cell, j) =>
+                edit && edit.r === i && edit.c === j ? (
+                  <td key={j} className="editing" onClick={(e) => e.stopPropagation()}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <input
+                        className="cell-input"
+                        autoFocus
+                        value={edit.draft}
+                        disabled={edit.saving}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => setEdit((s) => (s ? { ...s, draft: e.target.value } : s))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commit(edit.draft);
+                          if (e.key === "Escape") setEdit(null);
+                        }}
+                        onBlur={() => setEdit((s) => (s && !s.saving ? null : s))}
+                      />
+                      <button
+                        className="cell-null-btn"
+                        title="Set NULL"
+                        // mousedown (not click) so the input's blur doesn't cancel first
+                        onMouseDown={(e) => { e.preventDefault(); commit(null); }}
+                      >
+                        ∅
+                      </button>
+                      {edit.saving && <Spinner size={12} />}
+                    </span>
+                  </td>
+                ) : (
+                  <td
+                    key={j}
+                    className={cell === null ? "null" : ""}
+                    title={cell ?? "NULL"}
+                    onDoubleClick={onEditCell ? () => startEdit(i, j, cell) : undefined}
+                  >
+                    {cell === null ? "NULL" : cell === "" ? <span style={{ opacity: 0.4 }}>∅</span> : cell}
+                  </td>
+                )
+              )}
             </tr>
           ))}
         </tbody>

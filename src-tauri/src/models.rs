@@ -74,6 +74,14 @@ pub struct Filter {
     pub value: String,
 }
 
+/// One column/value pair in a row mutation. `None` means SQL NULL — both as a
+/// value to write and as a key to match (`IS NULL`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CellValue {
+    pub column: String,
+    pub value: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AiStatus {
     pub available: bool,
