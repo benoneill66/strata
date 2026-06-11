@@ -18,6 +18,7 @@ function isReadOnly(sql: string): boolean {
 
 const HISTORY_KEY = "strata.query-history";
 const MAX_HISTORY = 50;
+const AUTORUN_KEY = "strata.ai-autorun";
 
 function loadHistory(): string[] {
   try {
@@ -53,6 +54,15 @@ export function Query({
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
+  // Opt-in: run generated SQL immediately (read-only queries only). Off by default.
+  const [autoRun, setAutoRun] = useState(() => localStorage.getItem(AUTORUN_KEY) === "1");
+
+  function toggleAutoRun() {
+    setAutoRun((v) => {
+      localStorage.setItem(AUTORUN_KEY, v ? "0" : "1");
+      return !v;
+    });
+  }
 
   // EXPLAIN visualizer: plan JSON + whether it carries real (ANALYZE) timings
   const [plan, setPlan] = useState<{ json: string; analyzed: boolean; sql: string } | null>(null);
@@ -112,10 +122,10 @@ export function Query({
       const s = await api.generateSql(connId, q);
       setSql(s.sql);
       setExplanation(s.explanation || null);
-      if (isReadOnly(s.sql)) {
+      if (autoRun && isReadOnly(s.sql)) {
         await runSql(s.sql);
       } else {
-        toast("Generated a write query — review it, then Run.", "info");
+        if (autoRun && !isReadOnly(s.sql)) toast("Generated a write query — review it, then Run.", "info");
         editorRef.current?.focus();
       }
     } catch (e) {
@@ -182,6 +192,18 @@ export function Query({
             <button className="btn btn-primary" disabled={asking || !question.trim()} onClick={ask} style={{ background: "linear-gradient(135deg, var(--accent-3), var(--accent-2))" }}>
               {asking ? <Spinner size={13} /> : <Icon.sparkles w={14} />} Generate SQL
             </button>
+            <span
+              className="no-drag"
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0 }}
+              title="Run generated SQL immediately when it only reads — write queries always wait for review"
+            >
+              <button role="switch" aria-checked={autoRun} className={`switch ${autoRun ? "on" : ""}`} onClick={toggleAutoRun}>
+                <span className="knob" />
+              </button>
+              <span style={{ fontSize: 11.5, color: autoRun ? "var(--text)" : "var(--muted)" }} onClick={toggleAutoRun}>
+                Auto-run
+              </span>
+            </span>
           </div>
         )}
 

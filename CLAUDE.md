@@ -40,8 +40,10 @@ Finder-PATH probing for the `claude` binary. `generate_sql` builds a compact
 schema dump of the connected database (`schema_context` in `commands.rs`,
 capped at ~14k chars) as the system prompt and feeds the user's natural-language
 question on stdin; the model returns `{sql, explanation}`. The Query view's AI
-bar inserts the SQL into the editor and auto-runs it when it's read-only
-(`isReadOnly` in `views/Query.tsx`); write queries are inserted for review only.
+bar inserts the SQL into the editor; auto-running is opt-in via the Auto-run
+toggle (off by default, persisted in localStorage), and even then only fires
+for read-only queries (`isReadOnly` in `views/Query.tsx`) — write queries are
+always inserted for review only.
 No API key — auth rides on the user's existing Claude CLI sign-in. `ai_status`
 reports availability (shown in Settings). The live path is covered by
 `tests/ai_smoke.rs` (gated behind `STRATA_TEST_AI=1`). The same CLI pipeline
