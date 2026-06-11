@@ -416,6 +416,44 @@ body.no-native {
   border-left: 2px solid var(--hair); word-break: break-word;
 }
 
+/* ---------- results charts ---------- */
+.chart-wrap {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  border-radius: 14px; border: 1px solid var(--hair-soft);
+  background: rgba(0,0,0,0.22);
+}
+.chart-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-bottom: 1px solid var(--hair-soft);
+}
+.chart-toolbar select.input { width: auto; max-width: 160px; padding: 5px 8px; font-size: 12px; border-radius: 9px; }
+.chart-opt { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.chart-note { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.chart-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.chart-svg { display: block; }
+.chart-legend {
+  position: absolute; top: 10px; right: 12px;
+  display: flex; gap: 5px; flex-wrap: wrap; align-items: flex-end;
+  max-width: 45%; pointer-events: none;
+}
+.chart-legend .chip { background: rgba(14,18,28,0.75); backdrop-filter: blur(8px); }
+.swatch { width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0; }
+.chart-tooltip {
+  position: absolute; pointer-events: none; z-index: 5;
+  padding: 7px 10px; border-radius: 10px;
+  background: rgba(22,27,40,0.92); backdrop-filter: blur(14px);
+  border: 1px solid var(--hair);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  font-size: 11.5px; white-space: nowrap;
+}
+.chart-tooltip-title { font-weight: 650; margin-bottom: 3px; }
+.chart-tooltip-row { display: flex; align-items: center; gap: 6px; line-height: 1.7; font-size: 11px; }
+.chart-empty {
+  flex: 1; height: 100%; display: grid; place-items: center;
+  color: var(--muted); font-size: 12.5px; text-align: center; padding: 20px;
+}
+
 /* ---------- schema explorer (ER diagram) ---------- */
 .erd-viewport {
   position: relative;

@@ -71,4 +71,6 @@ export const Icon = {
     svg(w, <><path d="M4 8V5a1 1 0 0 1 1-1h3" /><path d="M20 8V5a1 1 0 0 0-1-1h-3" /><path d="M4 16v3a1 1 0 0 0 1 1h3" /><path d="M20 16v3a1 1 0 0 1-1 1h-3" /></>),
   graph: ({ w = 17 }: { w?: number } = {}) =>
     svg(w, <><circle cx="5" cy="6" r="2.4" /><circle cx="19" cy="6" r="2.4" /><circle cx="12" cy="18" r="2.4" /><path d="M6.9 7.4 10.4 16M17.1 7.4 13.6 16M7 6h10" /></>),
+  chart: ({ w = 15 }: { w?: number } = {}) =>
+    svg(w, <><path d="M3 3v18h18" /><path d="M7 16v-5" /><path d="M12 16V7" /><path d="M17 16v-8" /></>),
 };

@@ -6,6 +6,8 @@ import { bytes, elapsed, estRows, num } from "../lib/format";
 import { Icon } from "../lib/icons";
 import { FILTER_OPS, TABLE_KINDS } from "../lib/types";
 import type { CellValue, ColumnInfo, Filter, FilterOp, RowUpdate } from "../lib/types";
+import type { ChartConfig } from "../lib/chart";
+import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
@@ -52,6 +54,10 @@ export function Browse({
   const [detail, setDetail] = useState<(string | null)[] | null>(null);
   const [inserting, setInserting] = useState(false);
 
+  // Rows as grid or chart — the chart shows the current page only.
+  const [resultView, setResultView] = useState<"grid" | "chart">("grid");
+  const [chart, setChart] = useState<ChartConfig | null>(null);
+
   // Staged cell edits, keyed on the row's primary-key values + column so they
   // survive paging, sorting and reloads. Saved together in one transaction.
   const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
@@ -89,6 +95,7 @@ export function Browse({
     setCount(null);
     setDetail(null);
     setInserting(false);
+    setChart(null); // different column set — let chart defaults re-pick
   }
 
   // ⌘K palette jump: select schema + table directly
@@ -365,6 +372,12 @@ export function Browse({
                 <button className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Data</button>
                 <button className={tab === "structure" ? "on" : ""} onClick={() => setTab("structure")}>Structure</button>
               </div>
+              {tab === "data" && (
+                <div className="seg">
+                  <button className={resultView === "grid" ? "on" : ""} onClick={() => setResultView("grid")}><Icon.table w={12} /> Grid</button>
+                  <button className={resultView === "chart" ? "on" : ""} onClick={() => setResultView("chart")}><Icon.chart w={12} /> Chart</button>
+                </div>
+              )}
               {isRealTable && tab === "data" && (
                 <button className="btn btn-sm" onClick={() => setInserting(true)}>
                   <Icon.plus w={13} /> Row
@@ -392,7 +405,15 @@ export function Browse({
                   </div>
                 )}
 
-                {displayed && (
+                {displayed && (resultView === "chart" ? (
+                  <ChartPanel
+                    result={displayed.result}
+                    hints={columns.data ?? undefined}
+                    config={chart}
+                    onConfig={setChart}
+                    caption="current page only"
+                  />
+                ) : (
                   <DataGrid
                     result={displayed.result}
                     startIndex={offset}
@@ -404,7 +425,7 @@ export function Browse({
                     onEditCell={canEditRows ? stageEdit : undefined}
                     dirtyCells={displayed.dirty}
                   />
-                )}
+                ))}
                 {rows.loading && rows.initial && (
                   <div className="glass-card" style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner size={20} /></div>
                 )}

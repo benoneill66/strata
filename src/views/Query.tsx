@@ -4,6 +4,8 @@ import { useAsync } from "../lib/hooks";
 import { elapsed, num } from "../lib/format";
 import { Icon } from "../lib/icons";
 import type { QueryResult } from "../lib/types";
+import type { ChartConfig } from "../lib/chart";
+import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
 import { PlanView } from "../components/PlanView";
@@ -51,6 +53,10 @@ export function Query({
   const [history, setHistory] = useState<string[]>(loadHistory);
   const [showHistory, setShowHistory] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  // Results as grid or chart; chart config self-heals when columns change.
+  const [resultView, setResultView] = useState<"grid" | "chart">("grid");
+  const [chart, setChart] = useState<ChartConfig | null>(null);
 
   // AI: ask in English, get SQL into the editor (auto-run when read-only).
   const ai = useAsync(() => api.aiStatus(), []);
@@ -266,6 +272,12 @@ export function Query({
             <DatabasePicker connId={connId} database={database} onSwitch={(db) => onSwitchDatabase(connId, db)} style={{ width: 190 }} />
           )}
           <div style={{ flex: 1 }} />
+          {result && result.rows.length > 0 && result.columns.length > 0 && (
+            <div className="seg">
+              <button className={resultView === "grid" ? "on" : ""} onClick={() => setResultView("grid")}>Grid</button>
+              <button className={resultView === "chart" ? "on" : ""} onClick={() => setResultView("chart")}>Chart</button>
+            </div>
+          )}
           {result && (
             <>
               <span className="chip mono">{num(result.rows.length)} rows{result.truncated ? " (truncated)" : ""}</span>
@@ -303,7 +315,9 @@ export function Query({
       {plan && !error && (
         <PlanView json={plan.json} analyzed={plan.analyzed} sql={plan.sql} aiAvailable={!!ai.data?.available} />
       )}
-      {result && result.columns.length > 0 && <DataGrid result={result} />}
+      {result && result.columns.length > 0 && (resultView === "chart" && result.rows.length > 0
+        ? <ChartPanel result={result} config={chart} onConfig={setChart} />
+        : <DataGrid result={result} />)}
       {result && result.columns.length === 0 && !error && (
         <div className="glass-card rise" style={{ padding: "13px 15px", color: "var(--ok)", fontSize: 13 }}>
           OK — {num(result.affected ?? 0)} row{(result.affected ?? 0) === 1 ? "" : "s"} affected · {elapsed(result.elapsed_ms)}
