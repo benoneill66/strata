@@ -25,6 +25,7 @@ export function Browse({
   hasConnections,
   onNew,
   onSwitchDatabase,
+  jumpTo,
 }: {
   connId: string | null;
   database: string | null;
@@ -32,6 +33,8 @@ export function Browse({
   hasConnections: boolean;
   onNew: () => void;
   onSwitchDatabase: (id: string, db: string) => Promise<void>;
+  /** ⌘K palette jump — seq bumps on every request, even to the same table. */
+  jumpTo?: { schema: string; table: string; seq: number } | null;
 }) {
   const [schema, setSchema] = useState<string | null>(null);
   const [table, setTable] = useState<string | null>(null);
@@ -87,6 +90,14 @@ export function Browse({
     setDetail(null);
     setInserting(false);
   }
+
+  // ⌘K palette jump: select schema + table directly
+  useEffect(() => {
+    if (!jumpTo) return;
+    setSchema(jumpTo.schema);
+    selectTable(jumpTo.table);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo?.seq]);
 
   const columns = useAsync(
     () => (connId && schema && table ? api.tableColumns(connId, schema, table) : Promise.resolve([])),

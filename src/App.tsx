@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, IS_TAURI, startWindowDrag, toggleMaximize } from "./lib/api";
 import type { ConnectionProfile, DbInfo, Settings as SettingsType } from "./lib/types";
 import { Sidebar, type ViewId } from "./components/Sidebar";
+import { CommandPalette } from "./components/CommandPalette";
 import { ConnectionDialog, blankProfile } from "./components/ConnectionDialog";
 import { Toaster, toast } from "./components/ui";
 import { Browse } from "./views/Browse";
@@ -20,9 +21,37 @@ export default function App() {
   const [editing, setEditing] = useState<ConnectionProfile | null>(null);
   const [isNew, setIsNew] = useState(false);
 
+  // ⌘K palette + its jump targets. Browse/Query stay mounted, so jumps are
+  // delivered as monotonically-sequenced props they react to in an effect.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [jumpTo, setJumpTo] = useState<{ schema: string; table: string; seq: number } | null>(null);
+  const [seedSql, setSeedSql] = useState<{ sql: string; seq: number } | null>(null);
+  const seq = useRef(0);
+
   useEffect(() => {
     if (!IS_TAURI) document.body.classList.add("no-native");
     api.getSettings().then(setSettings).catch(() => setSettings({ connections: [], row_limit: 200 }));
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const jumpTable = useCallback((schema: string, table: string) => {
+    setView("browse");
+    setJumpTo({ schema, table, seq: ++seq.current });
+  }, []);
+
+  const seedQuery = useCallback((sql: string) => {
+    setView("query");
+    setSeedSql({ sql, seq: ++seq.current });
   }, []);
 
   const saveSettings = useCallback(async (s: SettingsType) => {
@@ -139,6 +168,7 @@ export default function App() {
               hasConnections={hasConnections}
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}
+              jumpTo={jumpTo}
             />
           </div>
           <div style={{ display: view === "schema" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
@@ -157,6 +187,7 @@ export default function App() {
               hasConnections={hasConnections}
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}
+              seedSql={seedSql}
             />
           </div>
           <div style={{ display: view === "settings" ? "block" : "none", overflowY: "auto", flex: 1, minHeight: 0 }}>
@@ -174,6 +205,21 @@ export default function App() {
           onClose={() => setEditing(null)}
         />
       )}
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        connId={activeId && activeInfo ? activeId : null}
+        database={activeInfo?.database ?? null}
+        connections={settings.connections}
+        connected={connected}
+        onSelectConnection={select}
+        onSwitchDatabase={(db) => (activeId ? switchDatabase(activeId, db) : Promise.resolve())}
+        onJumpTable={jumpTable}
+        onSeedQuery={seedQuery}
+        onView={setView}
+        onNewConnection={newConnection}
+      />
 
       <Toaster />
     </div>

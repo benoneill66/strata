@@ -34,12 +34,15 @@ export function Query({
   hasConnections,
   onNew,
   onSwitchDatabase,
+  seedSql,
 }: {
   connId: string | null;
   database: string | null;
   hasConnections: boolean;
   onNew: () => void;
   onSwitchDatabase: (id: string, db: string) => Promise<void>;
+  /** ⌘K palette: drop a recent query into the editor (seq bumps every time). */
+  seedSql?: { sql: string; seq: number } | null;
 }) {
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -134,6 +137,17 @@ export function Query({
       setAsking(false);
     }
   }
+
+  // ⌘K palette: load a recent query into the editor for review (never auto-runs)
+  useEffect(() => {
+    if (!seedSql) return;
+    setSql(seedSql.sql);
+    setResult(null);
+    setPlan(null);
+    setError(null);
+    editorRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedSql?.seq]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

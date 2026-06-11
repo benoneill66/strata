@@ -1,4 +1,4 @@
-import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
+import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -54,6 +54,9 @@ export const api = {
 
   listTables: (id: string, schema: string): Promise<TableInfo[]> =>
     IS_TAURI ? invoke("list_tables", { id, schema }) : demo.wait(demo.demoTables[schema] ?? []),
+
+  listAllTables: (id: string): Promise<QualifiedTable[]> =>
+    IS_TAURI ? invoke("list_all_tables", { id }) : demo.wait(demo.demoAllTables(), 120),
 
   tableColumns: (id: string, schema: string, table: string): Promise<ColumnInfo[]> =>
     IS_TAURI ? invoke("table_columns", { id, schema, table }) : demo.wait(demo.demoColumns, 150),

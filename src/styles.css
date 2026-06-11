@@ -360,6 +360,29 @@ body.no-native {
 }
 .cell-null-btn:hover { color: var(--text); border-color: rgba(79,168,255,0.5); }
 
+/* ---------- ⌘K command palette ---------- */
+.palette {
+  width: 580px; max-width: 92vw; padding: 0; overflow: hidden;
+  background: rgba(15,18,27,0.97);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+.palette-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-size: 14px;
+}
+.palette-input::placeholder { color: var(--muted); }
+.palette-section {
+  font-size: 10px; font-weight: 650; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 9px 10px 4px;
+}
+.palette-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 9px; cursor: default;
+  color: var(--text);
+}
+.palette-item.active { background: rgba(79,168,255,0.16); }
+
 /* ---------- EXPLAIN plan visualizer ---------- */
 .plan-wrap {
   overflow: auto; flex: 1; min-height: 0; padding: 6px;

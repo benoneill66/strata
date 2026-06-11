@@ -8,7 +8,8 @@ use tokio_postgres::Client;
 use crate::ai::{self, SqlSuggestion};
 use crate::models::{
     AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge,
-    GraphNode, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, TableInfo,
+    GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings,
+    TableInfo,
 };
 use crate::pg::{self, Pool};
 use crate::secrets;
@@ -203,6 +204,30 @@ pub async fn list_tables(state: State<'_, AppState>, id: String, schema: String)
             kind: cell(r, 1),
             est_rows: cell(r, 2).parse().unwrap_or(-1),
             size_bytes: cell(r, 3).parse().unwrap_or(0),
+        })
+        .collect())
+}
+
+/// Every relation in every user schema, one round-trip — the ⌘K palette
+/// searches this to jump anywhere in the database.
+#[tauri::command]
+pub async fn list_all_tables(state: State<'_, AppState>, id: String) -> R<Vec<QualifiedTable>> {
+    let client = client_for(&state, &id).await?;
+    let sql = format!(
+        "SELECT n.nspname, c.relname, c.relkind::text, c.reltuples::bigint \
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE {HIDDEN_SCHEMAS} AND c.relkind IN ('r','p','v','m','f') \
+         ORDER BY n.nspname, c.relname"
+    );
+    let res = pg::simple(&client, &sql, 50_000).await?;
+    Ok(res
+        .rows
+        .iter()
+        .map(|r| QualifiedTable {
+            schema: cell(r, 0),
+            name: cell(r, 1),
+            kind: cell(r, 2),
+            est_rows: cell(r, 3).parse().unwrap_or(-1),
         })
         .collect())
 }

@@ -58,6 +58,9 @@ natural-language → SQL one tab away.
   node details. Analyze captures real timings by running the query inside a
   transaction that always rolls back — safe even on writes. One more click
   gets an AI diagnosis of the bottleneck and the most impactful fix.
+- **⌘K palette** — fuzzy-jump anywhere: every table in every schema, saved
+  connections, databases on the active server, recent queries, and app
+  actions, all from one keyboard-driven search box.
 - **Query** — SQL editor (⌘↩ to run) for multi-statement scripts, result grid,
   elapsed/row chips, copy-as-CSV, and local query history.
 - **Ask AI** — type a question in plain English and Strata writes the SQL from

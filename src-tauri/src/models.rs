@@ -59,6 +59,16 @@ pub struct TableInfo {
     pub size_bytes: i64,
 }
 
+/// A relation with its schema, across the whole database — powers the ⌘K
+/// command palette's table jump.
+#[derive(Debug, Clone, Serialize)]
+pub struct QualifiedTable {
+    pub schema: String,
+    pub name: String,
+    pub kind: String,
+    pub est_rows: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ColumnInfo {
     pub name: String,

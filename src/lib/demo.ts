@@ -1,7 +1,7 @@
 // Fictional data for browser dev (bun run dev) — lets the UI render without
 // the Tauri backend or a real database, and keeps screenshots clean.
 
-import type { ColumnInfo, ConnectionProfile, Filter, GraphNode, QueryResult, SchemaGraph, SchemaInfo, TableInfo } from "./types";
+import type { ColumnInfo, ConnectionProfile, Filter, GraphNode, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo } from "./types";
 
 export const demoConnections: ConnectionProfile[] = [
   {
@@ -49,6 +49,12 @@ export const demoTables: Record<string, TableInfo[]> = {
     { name: "api_keys", kind: "r", est_rows: 64, size_bytes: 96 * 1024 },
   ],
 };
+
+export function demoAllTables(): QualifiedTable[] {
+  return Object.entries(demoTables).flatMap(([schema, tables]) =>
+    tables.map((t) => ({ schema, name: t.name, kind: t.kind, est_rows: t.est_rows }))
+  );
+}
 
 export const demoColumns: ColumnInfo[] = [
   { name: "id", data_type: "uuid", nullable: false, is_pk: true, default: "gen_random_uuid()" },

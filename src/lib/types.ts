@@ -36,6 +36,14 @@ export interface TableInfo {
   size_bytes: number;
 }
 
+/** A relation qualified by schema — the ⌘K palette's jump targets. */
+export interface QualifiedTable {
+  schema: string;
+  name: string;
+  kind: string;
+  est_rows: number;
+}
+
 export interface ColumnInfo {
   name: string;
   data_type: string;

@@ -78,6 +78,7 @@ pub fn run() {
             commands::connected_ids,
             commands::list_schemas,
             commands::list_tables,
+            commands::list_all_tables,
             commands::table_columns,
             commands::schema_graph,
             commands::table_rows,

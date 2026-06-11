@@ -95,3 +95,9 @@ data via `useAsync` (`src/lib/hooks.ts`) through the `api` wrapper
 (`src/lib/api.ts`, demo fallback when not in Tauri). Browse and Query stay
 mounted in `App.tsx` so table selection, filters and the SQL buffer survive
 view switches. The shared results grid is `src/components/DataGrid.tsx`.
+
+The ⌘K palette (`components/CommandPalette.tsx`, toggled by a global keydown
+in `App.tsx`) fuzzy-searches tables across all schemas (`list_all_tables`),
+connections, databases, recent queries and actions. Because Browse/Query stay
+mounted, palette jumps arrive as sequenced props (`jumpTo`/`seedSql`, a `seq`
+counter bumps every request) that the views apply in an effect.
