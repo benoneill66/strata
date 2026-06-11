@@ -41,7 +41,7 @@ for UI iteration and screenshots.
 
 ```sh
 bun run dist
-# → src-tauri/target/universal-apple-darwin/release/bundle/dmg/Strata_<version>_universal.dmg
+# → dist-dmg/Strata_<version>_universal.dmg
 ```
 
 Send them that `.dmg`. They open it and drag **Strata** into Applications.

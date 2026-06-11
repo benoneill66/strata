@@ -16,7 +16,6 @@
 
   <!-- squircle base with macOS-style margin -->
   <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
-  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="6"/>
 
   <!-- strata: three stacked layers -->
   <g filter="url(#soft)">
