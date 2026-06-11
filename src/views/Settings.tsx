@@ -2,6 +2,7 @@ import { api, IS_TAURI, openExternal } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { Icon } from "../lib/icons";
 import type { AiProvider, Settings as SettingsType } from "../lib/types";
+import pkg from "../../package.json";
 
 const PAGE_SIZES = [100, 200, 500, 1000];
 const AI_PROVIDERS: { id: AiProvider; label: string; install: string }[] = [
@@ -108,7 +109,7 @@ export function Settings({
       <div className="glass-card" style={{ padding: 18 }}>
         <div className="label" style={{ marginBottom: 10 }}>About</div>
         <div className="meta-grid">
-          <span className="k">App</span><span className="v">Strata 1.0.0 — native Postgres browser</span>
+          <span className="k">App</span><span className="v">Strata {pkg.version} — native Postgres browser</span>
           <span className="k">Mode</span><span className="v">{IS_TAURI ? "Native (Tauri)" : "Browser demo — fictional data"}</span>
           <span className="k">Storage</span><span className="v mono" style={{ fontSize: 12 }}>~/Library/Application Support/app.strata.desktop/settings.json</span>
           <span className="k">Note</span><span className="v" style={{ color: "var(--muted)" }}>Connection passwords are stored securely in the macOS Keychain, not in that file.</span>
