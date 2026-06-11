@@ -1,5 +1,6 @@
 pub mod ai;
 mod commands;
+pub mod export;
 pub mod models;
 pub mod pg;
 pub mod secrets;
@@ -16,6 +17,7 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectStat
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Persist settings (saved connections, prefs) under the OS app-data dir.
             let dir = app.path().app_data_dir().expect("app data dir");
@@ -87,6 +89,8 @@ pub fn run() {
             commands::insert_row,
             commands::delete_row,
             commands::run_query,
+            commands::export_table,
+            commands::export_query,
             commands::explain_query,
             commands::diagnose_plan,
             commands::ai_status,

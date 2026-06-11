@@ -10,6 +10,7 @@ import type { ChartConfig } from "../lib/chart";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
+import { ExportMenu } from "../components/ExportMenu";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
 
 const PAGE_SIZES = [100, 200, 500, 1000];
@@ -382,6 +383,15 @@ export function Browse({
                 <button className="btn btn-sm" onClick={() => setInserting(true)}>
                   <Icon.plus w={13} /> Row
                 </button>
+              )}
+              {tab === "data" && (
+                <ExportMenu
+                  result={displayed?.result ?? null}
+                  baseName={`${schema}.${table}`}
+                  sqlTable={`"${schema}"."${table}"`}
+                  disabled={!rows.data || rows.data.rows.length === 0}
+                  run={(format, path) => api.exportTable(connId, schema!, table, sortCol, sortDesc, filters, format, path)}
+                />
               )}
               <button className="btn btn-sm" onClick={() => rows.reload()}>
                 {rows.loading ? <Spinner size={13} /> : <Icon.refresh w={13} />}

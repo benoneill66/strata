@@ -6,6 +6,7 @@ use tauri::State;
 use tokio_postgres::Client;
 
 use crate::ai::{self, SqlSuggestion};
+use crate::export;
 use crate::models::{
     AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, GraphColumn, GraphEdge,
     GraphNode, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings,
@@ -472,6 +473,64 @@ pub async fn run_query(
 ) -> R<QueryResult> {
     let client = client_for(&state, &id).await?;
     pg::simple(&client, &sql, max_rows.clamp(1, 10_000) as usize).await
+}
+
+// ---------- export ----------
+
+/// Export a Browse table to a file: rebuild the same `SELECT *` the grid uses
+/// (filters + sort) but without the page limit, so the whole filtered result
+/// lands on disk. Returns the number of rows written.
+#[tauri::command]
+pub async fn export_table(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    order_by: Option<String>,
+    order_desc: bool,
+    filters: Vec<Filter>,
+    format: String,
+    path: String,
+) -> R<u64> {
+    let fmt = export::Format::parse(&format)?;
+    let client = client_for(&state, &id).await?;
+    let mut sql = format!(
+        "SELECT * FROM {}.{}",
+        pg::quote_ident(&schema),
+        pg::quote_ident(&table)
+    );
+    sql.push_str(&pg::filter_sql(&filters)?);
+    if let Some(col) = &order_by {
+        sql.push_str(&format!(
+            " ORDER BY {} {}",
+            pg::quote_ident(col),
+            if order_desc { "DESC" } else { "ASC" }
+        ));
+    }
+    let res = pg::simple(&client, &sql, usize::MAX).await?;
+    let target = format!("{}.{}", pg::quote_ident(&schema), pg::quote_ident(&table));
+    let content = export::render(fmt, &res.columns, &res.rows, &target)?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    Ok(res.rows.len() as u64)
+}
+
+/// Export the results of an editor query to a file. The caller only enables
+/// this for read-only SQL, so re-running it to fetch the full (uncapped) result
+/// set has no side effects. Returns the number of rows written.
+#[tauri::command]
+pub async fn export_query(
+    state: State<'_, AppState>,
+    id: String,
+    sql: String,
+    format: String,
+    path: String,
+) -> R<u64> {
+    let fmt = export::Format::parse(&format)?;
+    let client = client_for(&state, &id).await?;
+    let res = pg::simple(&client, &sql, usize::MAX).await?;
+    let content = export::render(fmt, &res.columns, &res.rows, &pg::quote_ident("query_result"))?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    Ok(res.rows.len() as u64)
 }
 
 /// EXPLAIN the statement and return the plan JSON. With `analyze` the query

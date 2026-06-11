@@ -24,6 +24,7 @@ native-tls = "0.2"
 parking_lot = "0.12"
 window-vibrancy = "0.5"
 keyring = { version = "3", features = ["apple-native"] }
+tauri-plugin-dialog = "2.7.1"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

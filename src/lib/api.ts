@@ -93,6 +93,24 @@ export const api = {
   runQuery: (id: string, sql: string, maxRows: number): Promise<QueryResult> =>
     IS_TAURI ? invoke("run_query", { id, sql, maxRows }) : demo.wait(demo.demoRows(50, 0, [])),
 
+  // Full-result exports re-query without the page limit and write the file in
+  // Rust; the path comes from the native save dialog. (Tauri only — the demo
+  // path serializes the in-memory result client-side, see ExportMenu.)
+  exportTable: (
+    id: string,
+    schema: string,
+    table: string,
+    orderBy: string | null,
+    orderDesc: boolean,
+    filters: Filter[],
+    format: string,
+    path: string
+  ): Promise<number> =>
+    invoke("export_table", { id, schema, table, orderBy, orderDesc, filters, format, path }),
+
+  exportQuery: (id: string, sql: string, format: string, path: string): Promise<number> =>
+    invoke("export_query", { id, sql, format, path }),
+
   explainQuery: (id: string, sql: string, analyze: boolean): Promise<string> =>
     IS_TAURI ? invoke("explain_query", { id, sql, analyze }) : demo.wait(demo.demoPlan(analyze), 450),
 
@@ -125,4 +143,25 @@ export async function toggleMaximize() {
   if (!IS_TAURI) return;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().toggleMaximize();
+}
+
+// ---------- file export helpers ----------
+
+/** Native "Save As…" dialog. Returns the chosen path, or null if cancelled. */
+export async function saveDialog(defaultName: string, extension: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({
+    defaultPath: defaultName,
+    filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+  });
+}
+
+/** Browser/demo fallback: trigger a download from an in-memory string. */
+export function browserDownload(filename: string, content: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -36,6 +36,22 @@ Every Tauri command in `src-tauri/src/commands.rs` shapes results into the
 structs in `models.rs`, which mirror the TypeScript types in
 `src/lib/types.ts` (snake_case on both sides).
 
+## Exporting results
+
+Browse tables and read-only Query results export to CSV/TSV/JSON/SQL-INSERTs
+via the `ExportMenu` component (`src/components/ExportMenu.tsx`). Export means
+the **full** result set, not the visible page: `export_table` rebuilds the same
+`SELECT *` the grid uses (filters + sort) without the LIMIT, and `export_query`
+re-runs the editor SQL — both fetch through `pg::simple(.., usize::MAX)`. The
+menu opens the native save dialog (`tauri-plugin-dialog`, invoked from JS in
+`api.ts`'s `saveDialog`), then the Rust command serializes via `export.rs` and
+`std::fs::write`s the chosen path. Query export is gated on `isReadOnly` of the
+SQL that produced the current result (tracked as `resultSql`), so a write is
+never silently re-fired. `export.rs::render` reuses `pg::quote_ident`/
+`quote_lit` for the SQL format; in browser-dev mode there's no backend, so
+`ExportMenu` serializes the in-memory result client-side (`src/lib/export.ts`,
+a mirror of `export.rs`) and downloads a Blob.
+
 ## AI SQL generation
 
 `src-tauri/src/ai.rs` shells out to the **Claude CLI** (`claude -p

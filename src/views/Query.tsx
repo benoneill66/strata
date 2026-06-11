@@ -8,6 +8,7 @@ import type { ChartConfig } from "../lib/chart";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataGrid } from "../components/DataGrid";
 import { DatabasePicker } from "../components/DatabasePicker";
+import { ExportMenu } from "../components/ExportMenu";
 import { PlanView } from "../components/PlanView";
 import { CopyBtn, Empty, Spinner, toast } from "../components/ui";
 
@@ -48,6 +49,9 @@ export function Query({
 }) {
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
+  // The exact SQL that produced `result` — export re-runs this (not the live
+  // editor buffer), and only when it's read-only, so a write never re-fires.
+  const [resultSql, setResultSql] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [history, setHistory] = useState<string[]>(loadHistory);
@@ -94,6 +98,7 @@ export function Query({
     try {
       const res = await api.runQuery(connId, q, 2000);
       setResult(res);
+      setResultSql(q);
       pushHistory(q);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -286,6 +291,14 @@ export function Query({
               )}
               <span className="chip mono"><Icon.clock w={11} /> {elapsed(result.elapsed_ms)}</span>
               {result.rows.length > 0 && <CopyBtn text={csv} label="Copy CSV" />}
+              {result.rows.length > 0 && isReadOnly(resultSql) && (
+                <ExportMenu
+                  result={result}
+                  baseName="query"
+                  sqlTable={'"query_result"'}
+                  run={(format, path) => api.exportQuery(connId, resultSql, format, path)}
+                />
+              )}
             </>
           )}
         </div>
