@@ -1,48 +1,65 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { estRows } from "../lib/format";
 import { Icon } from "../lib/icons";
 import { TABLE_KINDS } from "../lib/types";
-import type { GraphNode, SchemaGraph } from "../lib/types";
+import type { GraphColumn, GraphNode, SchemaGraph } from "../lib/types";
 import { DatabasePicker } from "../components/DatabasePicker";
 import { Empty, Spinner } from "../components/ui";
 
 // Node geometry — must match the CSS in styles.css (.erd-node).
-const NODE_W = 224;
-const HEADER_H = 36;
-const ROW_H = 22;
-const PAD_B = 8;
-const nodeH = (n: GraphNode) => HEADER_H + n.columns.length * ROW_H + PAD_B;
+const NODE_W = 220;
+const HEADER_H = 34;
+const ROW_H = 21;
+const PAD_B = 7;
 
+type Density = "compact" | "keys" | "all";
 type Pt = { x: number; y: number };
 type Layout = Record<string, Pt>; // node centre coordinates
 
-/** Deterministic force-directed layout (Fruchterman–Reingold) followed by a
-    box-collision pass so cards never overlap. Runs once per graph; nodes are
-    draggable afterwards. Positions are node centres. */
-function computeLayout(g: SchemaGraph): Layout {
-  const nodes = g.nodes;
-  const n = nodes.length;
-  if (!n) return {};
-  const idx = new Map(nodes.map((d, i) => [d.name, i]));
-  const size = nodes.map((d) => ({ w: NODE_W, h: nodeH(d) }));
+const keyCols = (n: GraphNode) => n.columns.filter((c) => c.is_pk || c.is_fk);
 
-  const k = 215; // ideal edge length (centre-to-centre)
+/** Which columns to render for a node, given the density mode and any per-node
+    drill-down. "compact" shows none (just the header), "keys" shows PK/FK only
+    (the relationship-relevant ones), "all" shows everything. */
+function shownCols(n: GraphNode, d: Density, expanded: Set<string>): GraphColumn[] {
+  if (expanded.has(n.name) || d === "all") return n.columns;
+  if (d === "compact") return [];
+  return keyCols(n);
+}
+function showsMore(n: GraphNode, d: Density, expanded: Set<string>): boolean {
+  return d === "keys" && !expanded.has(n.name) && n.columns.length > keyCols(n).length;
+}
+function nodeH(n: GraphNode, d: Density, expanded: Set<string>): number {
+  const body = shownCols(n, d, expanded).length + (showsMore(n, d, expanded) ? 1 : 0);
+  return HEADER_H + (body ? body * ROW_H + PAD_B : 0);
+}
+
+const EMPTY = new Set<string>();
+const layoutHeight = (n: GraphNode) => nodeH(n, "keys", EMPTY); // canonical size for layout
+
+/** Force-directed layout (Fruchterman–Reingold) on a set of connected nodes,
+    then a box-collision pass so cards never overlap. Positions are centres,
+    recentred on the centroid. */
+function forceLayout(nodes: GraphNode[], edges: SchemaGraph["edges"]): Pt[] {
+  const n = nodes.length;
+  const idx = new Map(nodes.map((d, i) => [d.name, i]));
+  const size = nodes.map((d) => ({ w: NODE_W, h: layoutHeight(d) }));
+  const k = Math.min(380, Math.max(210, 60 * Math.sqrt(n))); // spacing grows with size
+
   const pos: Pt[] = nodes.map((_, i) => {
     const a = (i / n) * Math.PI * 2;
-    const r = k * 0.9 + 1;
+    const r = k * Math.sqrt(n) * 0.42 + 1;
     return { x: Math.cos(a) * r, y: Math.sin(a) * r };
   });
-
-  const links = g.edges
+  const links = edges
     .map((e) => [idx.get(e.source), idx.get(e.target)] as [number | undefined, number | undefined])
     .filter(([a, b]) => a != null && b != null && a !== b) as [number, number][];
 
   let temp = k * 0.9;
-  for (let it = 0; it < 320; it++) {
+  for (let it = 0; it < 340; it++) {
     const disp: Pt[] = pos.map(() => ({ x: 0, y: 0 }));
-    // repulsion (capped so two near-coincident nodes don't explode)
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
         let dx = pos[i].x - pos[j].x;
@@ -54,7 +71,6 @@ function computeLayout(g: SchemaGraph): Layout {
         disp[j].x -= dx * f; disp[j].y -= dy * f;
       }
     }
-    // attraction along edges
     for (const [a, b] of links) {
       let dx = pos[a].x - pos[b].x;
       let dy = pos[a].y - pos[b].y;
@@ -64,11 +80,7 @@ function computeLayout(g: SchemaGraph): Layout {
       disp[a].x -= dx * f; disp[a].y -= dy * f;
       disp[b].x += dx * f; disp[b].y += dy * f;
     }
-    // gravity toward origin — keeps disconnected nodes from drifting away
-    for (let i = 0; i < n; i++) {
-      disp[i].x -= pos[i].x * 0.13;
-      disp[i].y -= pos[i].y * 0.13;
-    }
+    for (let i = 0; i < n; i++) { disp[i].x -= pos[i].x * 0.11; disp[i].y -= pos[i].y * 0.11; }
     for (let i = 0; i < n; i++) {
       const d = Math.hypot(disp[i].x, disp[i].y) || 0.01;
       pos[i].x += (disp[i].x / d) * Math.min(d, temp);
@@ -77,44 +89,91 @@ function computeLayout(g: SchemaGraph): Layout {
     temp = Math.max(temp * 0.985, 4);
   }
 
-  // resolve overlaps on the real boxes
-  for (let pass = 0; pass < 80; pass++) {
+  for (let pass = 0; pass < 90; pass++) {
     let moved = false;
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
         const dx = pos[i].x - pos[j].x;
         const dy = pos[i].y - pos[j].y;
-        const minX = (size[i].w + size[j].w) / 2 + 30;
-        const minY = (size[i].h + size[j].h) / 2 + 26;
+        const minX = (size[i].w + size[j].w) / 2 + 34;
+        const minY = (size[i].h + size[j].h) / 2 + 28;
         const ox = minX - Math.abs(dx);
         const oy = minY - Math.abs(dy);
         if (ox > 0 && oy > 0) {
           moved = true;
-          if (ox < oy) {
-            const s = ((dx < 0 ? -1 : 1) * ox) / 2;
-            pos[i].x += s; pos[j].x -= s;
-          } else {
-            const s = ((dy < 0 ? -1 : 1) * oy) / 2;
-            pos[i].y += s; pos[j].y -= s;
-          }
+          if (ox < oy) { const s = ((dx < 0 ? -1 : 1) * ox) / 2; pos[i].x += s; pos[j].x -= s; }
+          else { const s = ((dy < 0 ? -1 : 1) * oy) / 2; pos[i].y += s; pos[j].y -= s; }
         }
       }
     }
     if (!moved) break;
   }
 
-  // recenter on the centroid so the viewport fit is deterministic
   let cx = 0, cy = 0;
   for (const p of pos) { cx += p.x; cy += p.y; }
   cx /= n; cy /= n;
+  return pos.map((p) => ({ x: p.x - cx, y: p.y - cy }));
+}
+
+/** Lay out the schema: foreign-keyed tables get a force-directed graph, while
+    orphan tables (no relationships) are parked in a tidy grid beneath it so a
+    single disconnected table can't fling the whole map into a corner. */
+function computeLayout(g: SchemaGraph): Layout {
+  const nodes = g.nodes;
+  if (!nodes.length) return {};
+  const deg = new Map<string, number>();
+  for (const e of g.edges) {
+    if (e.source === e.target) continue;
+    deg.set(e.source, (deg.get(e.source) ?? 0) + 1);
+    deg.set(e.target, (deg.get(e.target) ?? 0) + 1);
+  }
+  const linked = nodes.filter((nd) => (deg.get(nd.name) ?? 0) > 0);
+  const orphans = nodes.filter((nd) => (deg.get(nd.name) ?? 0) === 0);
+
   const out: Layout = {};
-  nodes.forEach((d, i) => (out[d.name] = { x: pos[i].x - cx, y: pos[i].y - cy }));
+  let clusterMaxY = -Infinity, clusterCx = 0, clusterMinX = Infinity, clusterMaxX = -Infinity;
+  if (linked.length) {
+    const pos = forceLayout(linked, g.edges);
+    linked.forEach((nd, i) => {
+      out[nd.name] = pos[i];
+      const h = layoutHeight(nd);
+      clusterMaxY = Math.max(clusterMaxY, pos[i].y + h / 2);
+      clusterMinX = Math.min(clusterMinX, pos[i].x - NODE_W / 2);
+      clusterMaxX = Math.max(clusterMaxX, pos[i].x + NODE_W / 2);
+    });
+    clusterCx = (clusterMinX + clusterMaxX) / 2;
+  }
+
+  if (orphans.length) {
+    const cellW = NODE_W + 46;
+    const rowH = Math.max(...orphans.map(layoutHeight)) + 34;
+    // fit grid width to the cluster (or a sensible default) so it sits under it
+    const maxCols = linked.length
+      ? Math.max(1, Math.round((clusterMaxX - clusterMinX) / cellW))
+      : Math.ceil(Math.sqrt(orphans.length));
+    const perRow = Math.max(1, Math.min(orphans.length, maxCols));
+    const startY = (linked.length ? clusterMaxY + 80 : -(Math.ceil(orphans.length / perRow) * rowH) / 2);
+    const totalW = perRow * cellW;
+    const startX = (linked.length ? clusterCx : 0) - totalW / 2 + cellW / 2;
+    orphans.forEach((nd, i) => {
+      const r = Math.floor(i / perRow);
+      const c = i % perRow;
+      out[nd.name] = { x: startX + c * cellW, y: startY + r * rowH + rowH / 2 };
+    });
+  }
+
+  // recentre everything on its centroid so the viewport fit is deterministic
+  const names = Object.keys(out);
+  let cx = 0, cy = 0;
+  for (const nm of names) { cx += out[nm].x; cy += out[nm].y; }
+  cx /= names.length; cy /= names.length;
+  for (const nm of names) { out[nm] = { x: out[nm].x - cx, y: out[nm].y - cy }; }
   return out;
 }
 
-function colRowY(node: GraphNode, top: number, col: string): number {
-  const i = node.columns.findIndex((c) => c.name === col);
-  if (i < 0) return top + HEADER_H / 2;
+function colRowY(top: number, col: string, cols: GraphColumn[]): number {
+  const i = cols.findIndex((c) => c.name === col);
+  if (i < 0) return top + HEADER_H / 2; // header anchor (compact, or column hidden)
   return top + HEADER_H + (i + 0.5) * ROW_H;
 }
 
@@ -135,16 +194,24 @@ export function Schema({
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const [density, setDensity] = useState<Density>("keys");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const [layout, setLayout] = useState<Layout>({});
   const [view, setView] = useState({ x: 0, y: 0, z: 1 }); // pan + zoom
 
   const vpRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ kind: "pan" | "node"; name?: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{ kind: "pan" | "node"; name?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
   const gRef = useRef<SchemaGraph | null>(null);
   const layRef = useRef<Layout>({});
+  const viewRef = useRef(view);
+  const densityRef = useRef(density);
+  const expandedRef = useRef(expanded);
   const fittedRef = useRef(false);
   useEffect(() => { layRef.current = layout; }, [layout]);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => { densityRef.current = density; }, [density]);
+  useEffect(() => { expandedRef.current = expanded; }, [expanded]);
 
   useEffect(() => { setSchema(null); }, [database]);
 
@@ -167,7 +234,6 @@ export function Schema({
     return m;
   }, [graph.data]);
 
-  // neighbours of a node (for highlight)
   const neighbours = useMemo(() => {
     const m = new Map<string, Set<string>>();
     graph.data?.edges.forEach((e) => {
@@ -187,13 +253,15 @@ export function Schema({
     layRef.current = lay;
     setLayout(lay);
     setSel(null);
+    setExpanded(new Set());
     fittedRef.current = false;
     if (doFit()) fittedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph.data]);
 
-  // The panel is display:none until the Schema tab is shown, so the viewport can
-  // have zero size when the graph first loads. Fit as soon as it gains size.
+  // The viewport isn't rendered until a connection exists and the tab is shown,
+  // so it can have zero size when the graph first loads. Re-attach the observer
+  // once it exists (keyed on connId) and fit as soon as it gains size.
   useEffect(() => {
     const vp = vpRef.current;
     if (!vp || typeof ResizeObserver === "undefined") return;
@@ -203,7 +271,7 @@ export function Schema({
     ro.observe(vp);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [connId]);
 
   /** Centre + scale the graph to fit the viewport. No-op (returns false) when
       the viewport has no size yet, so a bad transform is never committed. */
@@ -216,22 +284,18 @@ export function Schema({
     for (const nd of g.nodes) {
       const p = lay[nd.name];
       if (!p) continue;
-      const h = nodeH(nd);
+      const h = nodeH(nd, densityRef.current, expandedRef.current);
       minX = Math.min(minX, p.x - NODE_W / 2);
       maxX = Math.max(maxX, p.x + NODE_W / 2);
       minY = Math.min(minY, p.y - h / 2);
       maxY = Math.max(maxY, p.y + h / 2);
     }
     if (!isFinite(minX)) return false;
-    const pad = 60;
+    const pad = 70;
     const w = maxX - minX + pad * 2;
     const h = maxY - minY + pad * 2;
-    const z = Math.min(1, Math.max(0.2, Math.min(vp.clientWidth / w, vp.clientHeight / h)));
-    setView({
-      z,
-      x: vp.clientWidth / 2 - ((minX + maxX) / 2) * z,
-      y: vp.clientHeight / 2 - ((minY + maxY) / 2) * z,
-    });
+    const z = Math.min(1, Math.max(0.12, Math.min(vp.clientWidth / w, vp.clientHeight / h)));
+    setView({ z, x: vp.clientWidth / 2 - ((minX + maxX) / 2) * z, y: vp.clientHeight / 2 - ((minY + maxY) / 2) * z });
     return true;
   }
 
@@ -245,59 +309,58 @@ export function Schema({
     if (doFit()) fittedRef.current = true;
   }
 
-  // ----- pan / node drag -----
-  function onPointerDown(e: React.MouseEvent, name?: string) {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    const p = name ? layout[name] : null;
-    drag.current = {
-      kind: name ? "node" : "pan",
-      name,
-      sx: e.clientX,
-      sy: e.clientY,
-      ox: name && p ? p.x : view.x,
-      oy: name && p ? p.y : view.y,
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-  function onMove(e: MouseEvent) {
+  // ----- pan / node drag (stable handlers so memoised nodes don't rebuild) -----
+  const onMove = useCallback((e: MouseEvent) => {
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.kind === "pan") {
       setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
     } else if (d.name) {
-      setView((v) => {
-        setLayout((l) => ({ ...l, [d.name!]: { x: d.ox + dx / v.z, y: d.oy + dy / v.z } }));
-        return v;
-      });
+      const z = viewRef.current.z;
+      setLayout((l) => ({ ...l, [d.name!]: { x: d.ox + dx / z, y: d.oy + dy / z } }));
     }
-  }
-  function onUp() {
+  }, []);
+  const onUp = useCallback(() => {
     drag.current = null;
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
-  }
-  useEffect(() => () => onUp(), []);
+  }, [onMove]);
+  const onPointerDown = useCallback((e: React.MouseEvent, name?: string) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const v = viewRef.current;
+    const p = name ? layRef.current[name] : null;
+    drag.current = { kind: name ? "node" : "pan", name, sx: e.clientX, sy: e.clientY, ox: name && p ? p.x : v.x, oy: name && p ? p.y : v.y, moved: false };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [onMove, onUp]);
+  useEffect(() => () => onUp(), [onUp]);
+
+  const toggleExpand = useCallback((name: string) => {
+    setExpanded((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  }, []);
+  const clickNode = useCallback((name: string) => {
+    if (drag.current?.moved) return; // a drag, not a click
+    setSel((s) => (s === name ? null : name));
+  }, []);
 
   function onWheel(e: React.WheelEvent) {
     const vp = vpRef.current;
     if (!vp) return;
     const rect = vp.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     setView((v) => {
-      const nz = Math.min(2, Math.max(0.2, v.z * (e.deltaY < 0 ? 1.12 : 0.89)));
-      // keep the point under the cursor stationary
+      const nz = Math.min(2, Math.max(0.12, v.z * (e.deltaY < 0 ? 1.12 : 0.89)));
       return { z: nz, x: mx - ((mx - v.x) / v.z) * nz, y: my - ((my - v.y) / v.z) * nz };
     });
   }
 
   function focusNode(name: string) {
     const vp = vpRef.current;
-    const p = layout[name];
+    const p = layRef.current[name];
     if (!vp || !p) return;
     setSel(name);
     setView((v) => ({ ...v, x: vp.clientWidth / 2 - p.x * v.z, y: vp.clientHeight / 2 - p.y * v.z }));
@@ -308,10 +371,115 @@ export function Schema({
     if (!vp) return;
     const mx = vp.clientWidth / 2, my = vp.clientHeight / 2;
     setView((v) => {
-      const nz = Math.min(2, Math.max(0.2, v.z * f));
+      const nz = Math.min(2, Math.max(0.12, v.z * f));
       return { z: nz, x: mx - ((mx - v.x) / v.z) * nz, y: my - ((my - v.y) / v.z) * nz };
     });
   }
+
+  const g = graph.data;
+  const active = hover ?? sel;
+  const matches = useCallback(
+    (name: string) => !!search && name.toLowerCase().includes(search.toLowerCase()),
+    [search]
+  );
+
+  // Memoised so panning/zooming (which only changes `view`) never rebuilds the
+  // node/edge subtree — that re-render of hundreds of cards was the lag.
+  const edgesEl = useMemo(() => {
+    if (!g) return null;
+    return (
+      <svg className="erd-edges" width="1" height="1" style={{ overflow: "visible" }}>
+        <defs>
+          <marker id="erd-dot" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5">
+            <circle cx="3.5" cy="3.5" r="2.4" fill="var(--accent-2)" />
+          </marker>
+        </defs>
+        {g.edges.map((e, i) => {
+          const sp = layout[e.source];
+          const tp = layout[e.target];
+          const sNode = nodeByName.get(e.source);
+          const tNode = nodeByName.get(e.target);
+          if (!sp || !tp || !sNode || !tNode || e.source === e.target) return null;
+          const sCols = shownCols(sNode, density, expanded);
+          const tCols = shownCols(tNode, density, expanded);
+          const sTop = sp.y - nodeH(sNode, density, expanded) / 2;
+          const tTop = tp.y - nodeH(tNode, density, expanded) / 2;
+          const dir = tp.x >= sp.x ? 1 : -1;
+          const sx = sp.x + dir * (NODE_W / 2);
+          const sy = colRowY(sTop, e.source_columns[0], sCols);
+          const tx = tp.x - dir * (NODE_W / 2);
+          const ty = colRowY(tTop, e.target_columns[0], tCols);
+          const curve = Math.max(34, Math.abs(tx - sx) * 0.4);
+          const on = !active || e.source === active || e.target === active;
+          return (
+            <path
+              key={i}
+              className={`erd-edge ${active && !on ? "dim" : ""} ${active && on ? "on" : ""}`}
+              d={`M ${sx} ${sy} C ${sx + dir * curve} ${sy}, ${tx - dir * curve} ${ty}, ${tx} ${ty}`}
+              markerEnd="url(#erd-dot)"
+            />
+          );
+        })}
+      </svg>
+    );
+  }, [g, layout, density, expanded, active, nodeByName]);
+
+  const nodesEl = useMemo(() => {
+    if (!g) return null;
+    const lit = (name: string) => !active || name === active || neighbours.get(active)?.has(name) || false;
+    return g.nodes.map((nd) => {
+      const p = layout[nd.name];
+      if (!p) return null;
+      const cols = shownCols(nd, density, expanded);
+      const more = showsMore(nd, density, expanded) ? nd.columns.length - keyCols(nd).length : 0;
+      const h = nodeH(nd, density, expanded);
+      const dim = !!active && !lit(nd.name);
+      return (
+        <div
+          key={nd.name}
+          className={`erd-node ${nd.name === sel ? "sel" : ""} ${dim ? "dim" : ""} ${matches(nd.name) ? "match" : ""}`}
+          style={{ left: p.x - NODE_W / 2, top: p.y - h / 2, width: NODE_W }}
+          onMouseEnter={() => setHover(nd.name)}
+          onMouseLeave={() => setHover((hh) => (hh === nd.name ? null : hh))}
+          onClick={(e) => { e.stopPropagation(); clickNode(nd.name); }}
+          onMouseDown={(e) => onPointerDown(e, nd.name)}
+        >
+          <div className="erd-node-head" style={{ height: HEADER_H }}>
+            <span style={{ display: "flex", opacity: 0.8 }}>
+              {nd.kind === "v" || nd.kind === "m" ? <Icon.eye w={12} /> : <Icon.table w={12} />}
+            </span>
+            <span className="nm mono">{nd.name}</span>
+            <span className="erd-kind">{nd.est_rows >= 0 ? estRows(nd.est_rows) : (TABLE_KINDS[nd.kind] ?? nd.kind)}</span>
+          </div>
+          {cols.length > 0 && (
+            <div>
+              {cols.map((c) => (
+                <div key={c.name} className="erd-col" style={{ height: ROW_H }}>
+                  <span className="erd-col-ic">
+                    {c.is_pk ? <span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span>
+                      : c.is_fk ? <span style={{ color: "var(--accent-2)" }}><Icon.link w={10} /></span>
+                      : <span className="erd-dot-col" />}
+                  </span>
+                  <span className={`erd-col-nm ${c.is_pk ? "pk" : ""}`}>{c.name}</span>
+                  <span className="erd-col-ty mono">{c.data_type}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {more > 0 && (
+            <div
+              className="erd-col erd-more"
+              style={{ height: ROW_H }}
+              onClick={(e) => { e.stopPropagation(); toggleExpand(nd.name); }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              + {more} more {more === 1 ? "column" : "columns"}
+            </div>
+          )}
+        </div>
+      );
+    });
+  }, [g, layout, density, expanded, active, sel, matches, neighbours, clickNode, toggleExpand, onPointerDown]);
 
   if (!connId) {
     return hasConnections ? (
@@ -326,24 +494,18 @@ export function Schema({
     );
   }
 
-  const g = graph.data;
-  const active = hover ?? sel;
-  const lit = (name: string) =>
-    !active || name === active || neighbours.get(active)?.has(name) || false;
-  const matches = (name: string) => !!search && name.toLowerCase().includes(search.toLowerCase());
-
   return (
     <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0 }}>
       {/* ---------- toolbar ---------- */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         {database && (
-          <div style={{ width: 168 }}>
+          <div style={{ width: 158 }}>
             <DatabasePicker connId={connId} database={database} onSwitch={(db) => onSwitchDatabase(connId, db)} />
           </div>
         )}
         <select
           className="input no-drag"
-          style={{ width: 150, padding: "8px 10px", fontSize: 13 }}
+          style={{ width: 140, padding: "8px 10px", fontSize: 13 }}
           value={schema ?? ""}
           onChange={(e) => { setSchema(e.target.value); setSearch(""); }}
         >
@@ -352,7 +514,7 @@ export function Schema({
           ))}
         </select>
 
-        <div style={{ position: "relative", width: 200 }}>
+        <div style={{ position: "relative", width: 180 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", display: "flex" }}>
             <Icon.search w={13} />
           </span>
@@ -362,23 +524,21 @@ export function Schema({
             placeholder="Find a table…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && g) {
-                const hit = g.nodes.find((nd) => matches(nd.name));
-                if (hit) focusNode(hit.name);
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter" && g) { const hit = g.nodes.find((nd) => matches(nd.name)); if (hit) focusNode(hit.name); } }}
           />
         </div>
 
         {g && (
-          <span className="chip mono" title="tables · relationships">
-            {g.nodes.length} tables · {g.edges.length} links
-          </span>
+          <span className="chip mono" title="tables · relationships">{g.nodes.length} tables · {g.edges.length} links</span>
         )}
 
         <div style={{ flex: 1 }} />
 
+        <div className="seg no-drag" title="Column detail">
+          <button className={density === "compact" ? "on" : ""} onClick={() => setDensity("compact")}>Tables</button>
+          <button className={density === "keys" ? "on" : ""} onClick={() => setDensity("keys")}>Keys</button>
+          <button className={density === "all" ? "on" : ""} onClick={() => setDensity("all")}>All</button>
+        </div>
         <div className="seg no-drag">
           <button onClick={() => zoomBy(0.83)} title="Zoom out"><Icon.minus w={13} /></button>
           <button onClick={() => zoomBy(1.2)} title="Zoom in"><Icon.plus w={13} /></button>
@@ -393,7 +553,7 @@ export function Schema({
         className="erd-viewport no-drag"
         onMouseDown={(e) => onPointerDown(e)}
         onWheel={onWheel}
-        onClick={() => setSel(null)}
+        onClick={() => { if (!drag.current?.moved) setSel(null); }}
       >
         {graph.loading && graph.initial && (
           <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><Spinner size={22} /></div>
@@ -408,86 +568,12 @@ export function Schema({
         )}
 
         {g && Object.keys(layout).length > 0 && (
-          <div
-            className="erd-canvas"
-            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
-          >
-            {/* edges */}
-            <svg className="erd-edges" width="1" height="1" style={{ overflow: "visible" }}>
-              <defs>
-                <marker id="erd-dot" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5">
-                  <circle cx="3.5" cy="3.5" r="2.4" fill="var(--accent-2)" />
-                </marker>
-              </defs>
-              {g.edges.map((e, i) => {
-                const sp = layout[e.source];
-                const tp = layout[e.target];
-                const sNode = nodeByName.get(e.source);
-                const tNode = nodeByName.get(e.target);
-                if (!sp || !tp || !sNode || !tNode || e.source === e.target) return null;
-                const sTop = sp.y - nodeH(sNode) / 2;
-                const tTop = tp.y - nodeH(tNode) / 2;
-                const dir = tp.x >= sp.x ? 1 : -1;
-                const sx = sp.x + dir * (NODE_W / 2);
-                const sy = colRowY(sNode, sTop, e.source_columns[0]);
-                const tx = tp.x - dir * (NODE_W / 2);
-                const ty = colRowY(tNode, tTop, e.target_columns[0]);
-                const curve = Math.max(36, Math.abs(tx - sx) * 0.4);
-                const on = lit(e.source) && lit(e.target) && (!active || e.source === active || e.target === active);
-                return (
-                  <path
-                    key={i}
-                    className={`erd-edge ${active && !on ? "dim" : ""} ${active && on ? "on" : ""}`}
-                    d={`M ${sx} ${sy} C ${sx + dir * curve} ${sy}, ${tx - dir * curve} ${ty}, ${tx} ${ty}`}
-                    markerEnd="url(#erd-dot)"
-                  />
-                );
-              })}
-            </svg>
-
-            {/* nodes */}
-            {g.nodes.map((nd) => {
-              const p = layout[nd.name];
-              if (!p) return null;
-              const h = nodeH(nd);
-              const dim = !!active && !lit(nd.name);
-              return (
-                <div
-                  key={nd.name}
-                  className={`erd-node ${nd.name === sel ? "sel" : ""} ${dim ? "dim" : ""} ${matches(nd.name) ? "match" : ""}`}
-                  style={{ left: p.x - NODE_W / 2, top: p.y - h / 2, width: NODE_W }}
-                  onMouseEnter={() => setHover(nd.name)}
-                  onMouseLeave={() => setHover((hh) => (hh === nd.name ? null : hh))}
-                  onClick={(e) => { e.stopPropagation(); setSel((s) => (s === nd.name ? null : nd.name)); }}
-                  onMouseDown={(e) => onPointerDown(e, nd.name)}
-                >
-                  <div className="erd-node-head" style={{ height: HEADER_H }}>
-                    <span style={{ display: "flex", opacity: 0.8 }}>
-                      {nd.kind === "v" || nd.kind === "m" ? <Icon.eye w={13} /> : <Icon.table w={13} />}
-                    </span>
-                    <span className="nm mono">{nd.name}</span>
-                    <span className="erd-kind">{nd.est_rows >= 0 ? estRows(nd.est_rows) : (TABLE_KINDS[nd.kind] ?? nd.kind)}</span>
-                  </div>
-                  <div>
-                    {nd.columns.map((c) => (
-                      <div key={c.name} className="erd-col" style={{ height: ROW_H }}>
-                        <span className="erd-col-ic">
-                          {c.is_pk ? <span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span>
-                            : c.is_fk ? <span style={{ color: "var(--accent-2)" }}><Icon.link w={10} /></span>
-                            : <span className="erd-dot-col" />}
-                        </span>
-                        <span className={`erd-col-nm ${c.is_pk ? "pk" : ""}`}>{c.name}</span>
-                        <span className="erd-col-ty mono">{c.data_type}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="erd-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
+            {edgesEl}
+            {nodesEl}
           </div>
         )}
 
-        {/* legend */}
         {g && g.nodes.length > 0 && (
           <div className="erd-legend mono">
             <span><span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span> primary key</span>

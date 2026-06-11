@@ -394,6 +394,12 @@ body.no-native {
 .erd-col-nm.pk { font-weight: 640; }
 .erd-col-ty { font-size: 10px; color: var(--accent-2); opacity: 0.78; flex-shrink: 0; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
 
+.erd-more {
+  font-size: 10px; color: var(--muted); font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  justify-content: center; cursor: default;
+}
+.erd-more:hover { color: var(--accent); background: rgba(79,168,255,0.07); }
+
 .erd-legend {
   position: absolute; left: 12px; bottom: 12px; z-index: 3;
   display: flex; gap: 14px; padding: 7px 11px; border-radius: 10px;

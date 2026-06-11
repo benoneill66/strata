@@ -7,7 +7,8 @@
 **A native macOS Postgres browser — the fast counterpart to pgAdmin.**
 
 Connect, click a table, and see your data instantly: filter, sort and page
-without writing SQL — with a full SQL editor and natural-language → SQL one tab away.
+without writing SQL — with an interactive schema map, a full SQL editor and
+natural-language → SQL one tab away.
 
 [![Download](https://img.shields.io/github/v/release/benoneill66/strata?label=Download%20.dmg&style=for-the-badge&color=4fa8ff)](https://github.com/benoneill66/strata/releases/latest)
 &nbsp;
@@ -38,6 +39,11 @@ without writing SQL — with a full SQL editor and natural-language → SQL one 
   column sorting, stackable filters (contains / = / ≠ / ranges / null), exact
   counts on demand, pagination, a structure tab (types, PKs, defaults) and a
   row-detail drawer with copy-as-JSON.
+- **Schema** — an interactive ER diagram of the whole schema: force-laid-out
+  table cards with primary/foreign-key markers and foreign-key edges. Pan, zoom,
+  drag, search, and click a table to light up everything it links to. Toggle
+  between table-only, key-columns or all-columns detail; orphan tables are
+  parked in a tidy grid.
 - **Query** — SQL editor (⌘↩ to run) for multi-statement scripts, result grid,
   elapsed/row chips, copy-as-CSV, and local query history.
 - **Ask AI** — type a question in plain English and Strata writes the SQL from
@@ -47,6 +53,8 @@ without writing SQL — with a full SQL editor and natural-language → SQL one 
   No Electron.
 
 <div align="center">
+<img src="docs/schema.png" width="820" alt="The interactive schema explorer" />
+&nbsp;
 <img src="docs/query.png" width="820" alt="Asking a question in plain English" />
 </div>
 
