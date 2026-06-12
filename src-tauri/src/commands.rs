@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::fs;
+use std::io::{BufRead, BufReader};
 
 use parking_lot::RwLock;
 use tauri::State;
@@ -709,6 +711,76 @@ pub async fn create_view(state: State<'_, AppState>, id: String, schema: String,
     let create_sql = format!("CREATE VIEW {}.{} AS {}", schema_ident, name_ident, sql);
     pg::simple(&client, &create_sql, 1).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn server_logs(state: State<'_, AppState>, id: String, lines: u32) -> R<Vec<String>> {
+    let client = client_for(&state, &id).await?;
+
+    // Try to get log directory from settings
+    let log_dir_res = pg::simple(&client, "SHOW log_directory", 1).await;
+    let log_dir = match log_dir_res {
+        Ok(res) => {
+            if let Some(row) = res.rows.first() {
+                let dir = cell(row, 0);
+                if PathBuf::from(&dir).is_absolute() {
+                    dir
+                } else {
+                    // Relative path — try to find PGDATA
+                    if let Ok(pgdata) = std::env::var("PGDATA") {
+                        PathBuf::from(pgdata).join(dir).to_string_lossy().to_string()
+                    } else {
+                        return Err("Could not determine absolute log path".to_string());
+                    }
+                }
+            } else {
+                return Err("Could not read log_directory".to_string());
+            }
+        }
+        Err(_) => return Err("Could not access log_directory setting".to_string()),
+    };
+
+    // Try to read the most recent log file
+    let log_path = PathBuf::from(&log_dir);
+    if !log_path.exists() {
+        return Err(format!("Log directory not found: {}", log_dir));
+    }
+
+    // Find the most recent log file
+    let mut log_files: Vec<_> = fs::read_dir(&log_path)
+        .map_err(|e| format!("Could not read log directory: {}", e))?
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                let path = e.path();
+                if path.is_file() && path.extension().map(|ext| ext == "log").unwrap_or(false) {
+                    e.metadata().ok().and_then(|m| m.modified().ok()).map(|_| path)
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    if log_files.is_empty() {
+        return Ok(vec!["No log files found".to_string()]);
+    }
+
+    log_files.sort_by_key(|p| {
+        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+
+    // Read the most recent log file, last N lines
+    let log_file = log_files.last().ok_or("No log files available")?;
+    let file = fs::File::open(log_file)
+        .map_err(|e| format!("Could not open log file: {}", e))?;
+
+    let reader = BufReader::new(file);
+    let all_lines: Vec<String> = reader.lines()
+        .filter_map(|line| line.ok())
+        .collect();
+
+    let start = all_lines.len().saturating_sub(lines as usize);
+    Ok(all_lines[start..].to_vec())
 }
 
 // ---------- data ----------

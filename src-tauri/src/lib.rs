@@ -81,6 +81,7 @@ pub fn run() {
             commands::monitor_snapshot,
             commands::terminate_backend,
             commands::create_view,
+            commands::server_logs,
             commands::table_rows,
             commands::table_count,
             commands::update_rows,

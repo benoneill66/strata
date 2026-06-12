@@ -110,6 +110,8 @@ export function Monitor({
 }) {
   const [live, setLive] = useState(true);
   const [killingPid, setKillingPid] = useState<number | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   const prev = useRef<MonitorSnapshot | null>(null);
   const [rates, setRates] = useState<Rates>(null);
   const snapshot = useAsync<MonitorSnapshot | null>(
@@ -146,6 +148,25 @@ export function Monitor({
       setKillingPid(null);
     }
   }
+
+  async function loadLogs() {
+    if (!connId) return;
+    setLogsLoading(true);
+    try {
+      const logLines = await api.serverLogs(connId, 50);
+      setLogs(logLines);
+    } catch (e) {
+      setLogs([`Error loading logs: ${e instanceof Error ? e.message : String(e)}`]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (active && connId && snapshot.data) {
+      loadLogs();
+    }
+  }, [active, connId, snapshot.data]);
 
   if (!connId) {
     return hasConnections ? (
@@ -362,6 +383,24 @@ export function Monitor({
             ) : (
               <div style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.5 }}>
                 {m.statements_error ?? "Enable pg_stat_statements on this server to see query-level timing."}
+              </div>
+            )}
+          </Section>
+
+          <Section
+            title="Server Logs"
+            icon={<Icon.terminal w={14} />}
+            right={<button className="btn btn-sm" onClick={loadLogs} disabled={logsLoading}>{logsLoading ? <Spinner size={11} /> : <Icon.refresh w={11} />}</button>}
+          >
+            {logs.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto", fontSize: 11.5, fontFamily: "SF Mono, ui-monospace, monospace", lineHeight: 1.4, color: "var(--muted)" }}>
+                {logs.map((line, i) => (
+                  <div key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{line}</div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                {logsLoading ? "Loading logs..." : "Click refresh to load server logs"}
               </div>
             )}
           </Section>

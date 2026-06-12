@@ -76,6 +76,9 @@ export const api = {
   createView: (id: string, schema: string, name: string, sql: string): Promise<void> =>
     IS_TAURI ? invoke("create_view", { id, schema, name, sql }) : demo.wait(undefined, 300),
 
+  serverLogs: (id: string, lines: number): Promise<string[]> =>
+    IS_TAURI ? invoke("server_logs", { id, lines }) : demo.wait(["Log line 1", "Log line 2", "Log line 3"], 200),
+
   tableRows: (
     id: string,
     schema: string,
