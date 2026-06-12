@@ -2,7 +2,7 @@ import { api, IS_TAURI, openExternal } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { Icon } from "../lib/icons";
 import type { AiProvider, Settings as SettingsType } from "../lib/types";
-import pkg from "../../package.json";
+import { appVersion, checkForUpdate } from "../lib/update";
 
 const PAGE_SIZES = [100, 200, 500, 1000];
 const AI_PROVIDERS: { id: AiProvider; label: string; install: string }[] = [
@@ -22,6 +22,8 @@ export function Settings({
   onSettings: (s: SettingsType) => Promise<void>;
 }) {
   const ai = useAsync(() => api.aiStatus(), [settings.ai_provider]);
+  const update = useAsync(() => checkForUpdate(), []);
+  const version = useAsync(() => appVersion(), []);
   const selectedProvider = providerLabel(settings.ai_provider);
   return (
     <div className="rise" style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 560 }}>
@@ -91,6 +93,49 @@ export function Settings({
       </div>
 
       <div className="glass-card" style={{ padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+          <div className="label">Updates</div>
+          <button
+            className="btn"
+            onClick={update.reload}
+            disabled={update.loading}
+            style={{ padding: "4px 10px", fontSize: 12 }}
+          >
+            <Icon.refresh w={13} /> {update.loading ? "Checking…" : "Check now"}
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13 }}>
+          {update.loading && update.initial ? (
+            <span style={{ color: "var(--muted)" }}>Checking for updates…</span>
+          ) : update.error || !update.data?.latest ? (
+            <>
+              <span className="dot error" />
+              <span style={{ color: "var(--muted)" }}>Couldn't check for updates — you're on {update.data?.current ?? "this version"}.</span>
+            </>
+          ) : update.data.updateAvailable ? (
+            <>
+              <span className="dot" style={{ background: "var(--accent-2)" }} />
+              <span style={{ flex: 1 }}>
+                <strong>Strata {update.data.latest}</strong> is available — you're on {update.data.current}.
+              </span>
+              <button
+                className="btn"
+                onClick={() => update.data && openExternal(update.data.url)}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                <Icon.download w={14} /> Download
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="dot ok" />
+              <span>You're on the latest version ({update.data.current}).</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="glass-card" style={{ padding: 18 }}>
         <div className="label" style={{ marginBottom: 4 }}>Support Strata</div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <div style={{ fontSize: 13, color: "var(--muted)", flex: 1, minWidth: 200 }}>
@@ -109,7 +154,7 @@ export function Settings({
       <div className="glass-card" style={{ padding: 18 }}>
         <div className="label" style={{ marginBottom: 10 }}>About</div>
         <div className="meta-grid">
-          <span className="k">App</span><span className="v">Strata {pkg.version} — native Postgres browser</span>
+          <span className="k">App</span><span className="v">Strata {version.data ?? "—"} — native Postgres browser</span>
           <span className="k">Mode</span><span className="v">{IS_TAURI ? "Native (Tauri)" : "Browser demo — fictional data"}</span>
           <span className="k">Storage</span><span className="v mono" style={{ fontSize: 12 }}>~/Library/Application Support/app.strata.desktop/settings.json</span>
           <span className="k">Note</span><span className="v" style={{ color: "var(--muted)" }}>Connection passwords are stored securely in the macOS Keychain, not in that file.</span>
