@@ -50,13 +50,13 @@ function Metric({
   tone?: "ok" | "alert" | "error" | "running";
 }) {
   return (
-    <div className="glass-card" style={{ padding: 14, minWidth: 0 }}>
+    <div className="glass-card" style={{ padding: 14, minWidth: 0, height: 130, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
         {tone && <span className={`dot ${tone}`} />}
         <span className="label">{label}</span>
       </div>
       <div className="stat-num" style={{ fontSize: 25 }}>{value}</div>
-      {sub && <div style={{ marginTop: 7, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.35 }}>{sub}</div>}
+      {sub && <div style={{ marginTop: "auto", fontSize: 11.5, color: "var(--muted)", lineHeight: 1.35 }}>{sub}</div>}
     </div>
   );
 }
@@ -73,7 +73,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="glass-card" style={{ padding: 14, display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="glass-card" style={{ padding: 14, display: "flex", flexDirection: "column", minHeight: 0, flexShrink: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ display: "flex", color: "var(--accent-2)" }}>{icon}</span>
         <div style={{ fontSize: 13, fontWeight: 680 }}>{title}</div>
@@ -190,7 +190,7 @@ export function Monitor({
   const connPct = o ? (o.total_connections / Math.max(1, o.max_connections)) * 100 : 0;
 
   return (
-    <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0 }}>
+    <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflow: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 740, letterSpacing: "-0.02em" }}>Monitor</h1>
@@ -226,7 +226,7 @@ export function Monitor({
 
       {m && o && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, flexShrink: 0 }}>
             <Metric label="Database size" value={bytes(o.size_bytes)} sub={`PostgreSQL ${o.server_version}`} />
             <Metric
               label="Connections"
@@ -253,7 +253,7 @@ export function Monitor({
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(auto, 200px)", gap: 12, minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(250px, 250px)", gap: 12, minHeight: 0, flexShrink: 0 }}>
             <Section
               title="Activity"
               icon={<Icon.terminal w={14} />}
@@ -303,7 +303,7 @@ export function Monitor({
             </Section>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(500px, 1fr))", gap: 12, minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 12, minHeight: 0, flexShrink: 0 }}>
             <Section
               title="Table Health"
               icon={<Icon.table w={14} />}
