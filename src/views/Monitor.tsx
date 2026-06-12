@@ -109,6 +109,7 @@ export function Monitor({
   onSwitchDatabase: (id: string, db: string) => Promise<void>;
 }) {
   const [live, setLive] = useState(true);
+  const [killingPid, setKillingPid] = useState<number | null>(null);
   const prev = useRef<MonitorSnapshot | null>(null);
   const [rates, setRates] = useState<Rates>(null);
   const snapshot = useAsync<MonitorSnapshot | null>(
@@ -134,6 +135,17 @@ export function Monitor({
     }
     prev.current = snapshot.data;
   }, [snapshot.data]);
+
+  async function killQuery(pid: number) {
+    if (!connId) return;
+    setKillingPid(pid);
+    try {
+      await api.terminateBackend(connId, pid);
+      await snapshot.reload();
+    } finally {
+      setKillingPid(null);
+    }
+  }
 
   if (!connId) {
     return hasConnections ? (
@@ -229,7 +241,7 @@ export function Monitor({
               {m.activity.length ? (
                 <MiniTable>
                   <thead>
-                    <tr><th>PID</th><th>User</th><th>State</th><th>Wait</th><th>Time</th><th>Query</th></tr>
+                    <tr><th>PID</th><th>User</th><th>State</th><th>Wait</th><th>Time</th><th>Query</th><th></th></tr>
                   </thead>
                   <tbody>
                     {m.activity.map((a) => (
@@ -240,6 +252,17 @@ export function Monitor({
                         <td>{a.wait || "—"}</td>
                         <td>{seconds(a.duration_seconds)}</td>
                         <td title={shortSql(a.query)}>{shortSql(a.query) || "—"}</td>
+                        <td style={{ textAlign: "right", paddingRight: 8 }}>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => killQuery(a.pid)}
+                            disabled={killingPid !== null}
+                            title="Terminate this backend"
+                            style={{ color: "var(--error)" }}
+                          >
+                            {killingPid === a.pid ? <Spinner size={11} /> : <Icon.close w={11} />}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

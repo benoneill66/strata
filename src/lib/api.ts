@@ -70,6 +70,9 @@ export const api = {
   monitorSnapshot: (id: string): Promise<MonitorSnapshot> =>
     IS_TAURI ? invoke("monitor_snapshot", { id }) : demo.wait(demo.demoMonitor(), 180),
 
+  terminateBackend: (id: string, pid: number): Promise<void> =>
+    IS_TAURI ? invoke("terminate_backend", { id, pid }) : demo.wait(undefined, 200),
+
   tableRows: (
     id: string,
     schema: string,

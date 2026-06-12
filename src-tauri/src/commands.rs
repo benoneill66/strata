@@ -693,6 +693,14 @@ pub async fn monitor_snapshot(state: State<'_, AppState>, id: String) -> R<Monit
     })
 }
 
+#[tauri::command]
+pub async fn terminate_backend(state: State<'_, AppState>, id: String, pid: i64) -> R<()> {
+    let client = client_for(&state, &id).await?;
+    let sql = format!("SELECT pg_terminate_backend({})", pid);
+    pg::simple(&client, &sql, 1).await?;
+    Ok(())
+}
+
 // ---------- data ----------
 
 #[tauri::command]

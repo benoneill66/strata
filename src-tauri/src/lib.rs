@@ -79,6 +79,7 @@ pub fn run() {
             commands::schema_graph,
             commands::table_relations,
             commands::monitor_snapshot,
+            commands::terminate_backend,
             commands::table_rows,
             commands::table_count,
             commands::update_rows,
