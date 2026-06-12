@@ -75,6 +75,39 @@ natural-language → SQL one tab away.
 <img src="docs/query.png" width="820" alt="Asking a question in plain English" />
 </div>
 
+## Why Strata?
+
+There are plenty of Postgres GUIs. Strata is deliberately narrow: **the fastest
+way to look something up — or fix one row — in Postgres on a Mac, without writing
+SQL.** It's the quick counterpart to pgAdmin, not a universal IDE.
+
+|  | Strata | pgAdmin | TablePlus | Postico | DBeaver |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Price | **Free** | Free | $99+/device | Paid | Free CE |
+| Open source | **✓ (MIT)** | ✓ | ✗ | ✗ | ✓ |
+| Truly Mac-native (no Electron/Java/web) | **✓** | ✗ (web) | ✓ | ✓ | ✗ (Java) |
+| Postgres-focused | **✓** | ✓ | ✗ (multi-DB) | ✓ | ✗ (multi-DB) |
+| AI SQL with **no API key** | **✓** | ✗ | ✗ | ✗ | ✗ |
+| Interactive schema ER map | **✓** | partial | ✗ | ✗ | ✓ |
+| Transaction-safe inline edits | **✓** | partial | ✓ | ✓ | ✓ |
+
+**The differentiators that matter:**
+
+- **No-API-key AI** — plain-English → SQL rides your *existing* Claude Code or
+  Codex CLI sign-in. No key to paste, no per-token bill. (Don't have either? The
+  AI bar just hides; everything else works.)
+- **Safe by construction** — inline edits stage locally and commit in a single
+  transaction that rolls back unless every row matches its primary key exactly
+  once, so a slip can't quietly rewrite a table. EXPLAIN ANALYZE always runs
+  inside `BEGIN`/`ROLLBACK` — safe even on writes.
+- **Lookup-first** — pick a connection, click a table, your data's on screen.
+  Filter and sort with buttons, not boilerplate.
+
+**Honest limits:** macOS-only, Postgres-only, and not yet code-signed (a one-time
+`xattr -cr` on first launch — see [Install](#install)). If you need Windows/Linux
+or many database engines, [DBeaver](https://dbeaver.io) or
+[Beekeeper Studio](https://www.beekeeperstudio.io) are better fits.
+
 ## Build from source
 
 Built with **Tauri 2 + React 19 + Tailwind 4**, talking to Postgres over
@@ -113,3 +146,7 @@ If Strata saves you time, you can buy me a coffee — it keeps the releases comi
 Connection profile metadata and prefs live in
 `~/Library/Application Support/app.strata.desktop/settings.json`. Passwords are
 stored separately in the macOS Keychain under the `Strata` service.
+
+## License
+
+[MIT](LICENSE) © Ben O'Neill. Free to use, fork, and build on.
