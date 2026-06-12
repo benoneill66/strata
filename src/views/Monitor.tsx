@@ -197,7 +197,7 @@ export function Monitor({
           {o && <span className="chip mono">{o.database}</span>}
         </div>
         {connId && database && (
-          <DatabasePicker connId={connId} database={database} onSwitch={(db) => onSwitchDatabase(connId, db)} style={{ width: 190 }} />
+          <DatabasePicker connId={connId} database={database} onSwitch={(db) => onSwitchDatabase(connId, db)} style={{ width: "clamp(150px, 20vw, 200px)" }} />
         )}
         <div style={{ flex: 1 }} />
         {m && <span className="chip mono">sampled {new Date(m.sampled_at_ms).toLocaleTimeString()}</span>}
@@ -226,7 +226,7 @@ export function Monitor({
 
       {m && o && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
             <Metric label="Database size" value={bytes(o.size_bytes)} sub={`PostgreSQL ${o.server_version}`} />
             <Metric
               label="Connections"
@@ -253,7 +253,7 @@ export function Monitor({
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 12, minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(auto, 200px)", gap: 12, minHeight: 0 }}>
             <Section
               title="Activity"
               icon={<Icon.terminal w={14} />}
@@ -303,7 +303,7 @@ export function Monitor({
             </Section>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(500px, 1fr))", gap: 12, minHeight: 0 }}>
             <Section
               title="Table Health"
               icon={<Icon.table w={14} />}

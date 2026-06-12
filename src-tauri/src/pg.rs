@@ -29,7 +29,7 @@ fn config_for(p: &ConnectionProfile) -> Config {
         .user(&p.user)
         .dbname(&p.database)
         .application_name("Strata")
-        .connect_timeout(Duration::from_secs(8));
+        .connect_timeout(Duration::from_secs(10));
     if !p.password.is_empty() {
         cfg.password(&p.password);
     }

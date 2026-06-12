@@ -146,7 +146,13 @@ pub async fn test_connection(state: State<'_, AppState>, mut profile: Connection
     {
         hydrate_password(&mut profile);
     }
-    let client = pg::open(&profile).await?;
+    let client = pg::open(&profile).await.map_err(|e| {
+        if e.contains("password authentication failed") {
+            format!("{} — verify your password is correct (check Keychain if editing a saved connection)", e)
+        } else {
+            e
+        }
+    })?;
     let res = pg::simple(&client, "SELECT version()", 1).await?;
     Ok(res
         .rows

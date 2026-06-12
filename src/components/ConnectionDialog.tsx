@@ -53,12 +53,16 @@ export function ConnectionDialog({
     }
   }
 
-  const field = (label: string, el: React.ReactNode, span2 = false) => (
+  const field = (label: string, el: React.ReactNode, span2 = false, hint?: string) => (
     <div style={{ gridColumn: span2 ? "span 2" : undefined }}>
       <div className="label" style={{ marginBottom: 6 }}>{label}</div>
       {el}
+      {hint && <div style={{ fontSize: 11, color: "var(--fg-muted)", marginTop: 4 }}>{hint}</div>}
     </div>
   );
+
+  const hasSpecialChars = /[<>()~?&|\\$"'`]/.test(p.password);
+  const passwordHint = p.password && hasSpecialChars ? "✓ Special characters detected" : undefined;
 
   return (
     <Dialog title={isNew ? "New connection" : "Edit connection"} onClose={onClose} width={520}>
@@ -67,7 +71,7 @@ export function ConnectionDialog({
         {field("Host", <input className="input" value={p.host} onChange={(e) => set({ host: e.target.value })} />)}
         {field("Port", <input className="input mono" type="number" value={p.port} onChange={(e) => set({ port: Number(e.target.value) || 5432 })} />)}
         {field("User", <input className="input" value={p.user} onChange={(e) => set({ user: e.target.value })} />)}
-        {field("Password", <input className="input" type="password" placeholder={isNew ? "" : "Leave blank to keep saved password"} value={p.password} onChange={(e) => set({ password: e.target.value })} />)}
+        {field("Password", <input className="input" type="password" placeholder={isNew ? "" : "Leave blank to keep saved password"} value={p.password} onChange={(e) => set({ password: e.target.value })} />, false, passwordHint)}
         {field("Database", <input className="input" value={p.database} onChange={(e) => set({ database: e.target.value })} />)}
         {field("SSL", (
           <div className="seg" style={{ width: "100%" }}>
