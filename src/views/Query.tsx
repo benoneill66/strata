@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { elapsed, num } from "../lib/format";
@@ -83,6 +84,11 @@ export function Query({
   const [plan, setPlan] = useState<{ json: string; analyzed: boolean; sql: string } | null>(null);
   const [explaining, setExplaining] = useState(false);
 
+  // Save as view
+  const [showSaveView, setShowSaveView] = useState(false);
+  const [viewName, setViewName] = useState("");
+  const [savingView, setSavingView] = useState(false);
+
   function pushHistory(q: string) {
     setHistory((prev) => {
       const next = [q, ...prev.filter((h) => h !== q)].slice(0, MAX_HISTORY);
@@ -125,6 +131,23 @@ export function Query({
       setPlan(null);
     } finally {
       setExplaining(false);
+    }
+  }
+
+  async function saveAsView() {
+    const name = viewName.trim();
+    if (!name || !connId || !database || savingView) return;
+    setSavingView(true);
+    setError(null);
+    try {
+      await api.createView(connId, "public", name, resultSql);
+      toast(`View "${name}" created in public schema`, "ok");
+      setShowSaveView(false);
+      setViewName("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingView(false);
     }
   }
 
@@ -294,12 +317,21 @@ export function Query({
               <span className="chip mono"><Icon.clock w={11} /> {elapsed(result.elapsed_ms)}</span>
               {result.rows.length > 0 && <CopyBtn text={csv} label="Copy CSV" />}
               {result.rows.length > 0 && isReadOnly(resultSql) && (
-                <ExportMenu
-                  result={result}
-                  baseName="query"
-                  sqlTable={'"query_result"'}
-                  run={(format, path) => api.exportQuery(connId, resultSql, format, path)}
-                />
+                <>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => setShowSaveView(true)}
+                    title="Save this query result as a view"
+                  >
+                    <Icon.layers w={13} /> Save as view
+                  </button>
+                  <ExportMenu
+                    result={result}
+                    baseName="query"
+                    sqlTable={'"query_result"'}
+                    run={(format, path) => api.exportQuery(connId, resultSql, format, path)}
+                  />
+                </>
               )}
             </>
           )}
@@ -345,6 +377,36 @@ export function Query({
             Results appear here — multiple statements are fine, separated by semicolons.
           </div>
         </div>
+      )}
+
+      {showSaveView && createPortal(
+        <div style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", zIndex: 1000, backgroundColor: "rgba(0, 0, 0, 0.4)" }}>
+          <div className="glass-card" style={{ padding: 24, width: 380, display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 680 }}>Save as view</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>
+              The query will be saved as a view in the <code style={{ background: "rgba(200,200,200,0.1)", padding: "2px 6px", borderRadius: 4 }}>public</code> schema.
+            </div>
+            <input
+              className="input"
+              type="text"
+              placeholder="View name"
+              value={viewName}
+              onChange={(e) => setViewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); saveAsView(); }
+                if (e.key === "Escape") { e.preventDefault(); setShowSaveView(false); }
+              }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => setShowSaveView(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={!viewName.trim() || savingView} onClick={saveAsView}>
+                {savingView ? <Spinner size={13} /> : <Icon.layers w={13} />} Create
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

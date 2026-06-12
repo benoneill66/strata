@@ -701,6 +701,16 @@ pub async fn terminate_backend(state: State<'_, AppState>, id: String, pid: i64)
     Ok(())
 }
 
+#[tauri::command]
+pub async fn create_view(state: State<'_, AppState>, id: String, schema: String, name: String, sql: String) -> R<()> {
+    let client = client_for(&state, &id).await?;
+    let schema_ident = pg::quote_ident(&schema);
+    let name_ident = pg::quote_ident(&name);
+    let create_sql = format!("CREATE VIEW {}.{} AS {}", schema_ident, name_ident, sql);
+    pg::simple(&client, &create_sql, 1).await?;
+    Ok(())
+}
+
 // ---------- data ----------
 
 #[tauri::command]

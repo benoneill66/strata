@@ -80,6 +80,7 @@ pub fn run() {
             commands::table_relations,
             commands::monitor_snapshot,
             commands::terminate_backend,
+            commands::create_view,
             commands::table_rows,
             commands::table_count,
             commands::update_rows,

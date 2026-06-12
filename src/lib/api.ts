@@ -73,6 +73,9 @@ export const api = {
   terminateBackend: (id: string, pid: number): Promise<void> =>
     IS_TAURI ? invoke("terminate_backend", { id, pid }) : demo.wait(undefined, 200),
 
+  createView: (id: string, schema: string, name: string, sql: string): Promise<void> =>
+    IS_TAURI ? invoke("create_view", { id, schema, name, sql }) : demo.wait(undefined, 300),
+
   tableRows: (
     id: string,
     schema: string,
