@@ -16,7 +16,7 @@ natural-language → SQL one tab away.
 &nbsp;
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-ffdd00?style=for-the-badge)](https://buymeacoffee.com/benoneill)
 
-<img src="docs/browse.png" width="860" alt="Browsing a table in Strata" />
+<img src="docs/demo.gif" width="860" alt="Click a connection, click a table, see your Postgres data instantly in Strata" />
 
 </div>
 
@@ -25,12 +25,25 @@ natural-language → SQL one tab away.
 **[⬇︎ Download the latest `.dmg`](https://github.com/benoneill66/strata/releases/latest)** — universal, runs on both Intel and Apple Silicon Macs.
 
 1. Open the `.dmg` and drag **Strata** into **Applications**.
-2. First launch only — the app isn't signed with an Apple Developer ID yet, so
-   clear the quarantine flag once:
+2. **First launch only.** Strata isn't signed with an Apple Developer ID yet, so
+   macOS quarantines it. Clear the flag once — open **Terminal** and run:
    ```sh
    xattr -cr /Applications/Strata.app
    ```
-   *(or right-click Strata → **Open** → **Open**).* After that, just double-click it.
+   Then double-click Strata as normal. That's it — you only ever do this once.
+
+   <details>
+   <summary>Prefer not to use Terminal?</summary>
+
+   Double-click **Strata** — macOS will block it. Then go to
+   **System Settings → Privacy & Security**, scroll to the bottom, and click
+   **Open Anyway** next to the Strata message, then confirm with **Open**.
+   *(On older macOS you can instead right-click Strata → **Open** → **Open**.)*
+   </details>
+
+   None of this means Strata is unsafe — it's the standard macOS gate for any app
+   from a developer who hasn't paid for Apple's signing program yet. The source is
+   right here if you'd like to read or build it yourself.
 
 ## Features
 

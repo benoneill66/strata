@@ -12,7 +12,8 @@
     "app:build": "tauri build",
     "install-app": "bun run tauri build --bundles app && rm -rf /Applications/Strata.app && cp -R src-tauri/target/release/bundle/macos/Strata.app /Applications/",
     "dist": "bash scripts/make-dmg.sh",
-    "screenshots": "node scripts/shoot.mjs"
+    "screenshots": "node scripts/shoot.mjs",
+    "demo-gif": "node scripts/capture-demo.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

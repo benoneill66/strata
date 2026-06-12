@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Strata — a fast, native macOS Postgres browser</title>
+<meta name="description" content="Strata is a free, open-source native macOS Postgres browser — the fast counterpart to pgAdmin. Click a table, see your data, no SQL. Schema map, AI SQL with no API key, and transaction-safe edits." />
+<meta property="og:title" content="Strata — a fast, native macOS Postgres browser" />
+<meta property="og:description" content="The fast counterpart to pgAdmin. Click a table, see your data — no SQL. Free & open source." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://benoneill66.github.io/strata/browse.png" />
+<link rel="icon" href="https://raw.githubusercontent.com/benoneill66/strata/main/src-tauri/icons/128x128@2x.png" />
+<style>
+  :root{
+    --bg:#0b1020; --ink:#eaf0ff; --muted:#9fb0d0; --line:rgba(255,255,255,.10);
+    --blue:#4fa8ff; --teal:#38d9c4; --card:rgba(255,255,255,.045);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  /* aurora wash */
+  body::before{
+    content:""; position:fixed; inset:-30vmax; z-index:-1; pointer-events:none;
+    background:
+      radial-gradient(40vmax 40vmax at 18% 12%, rgba(79,168,255,.22), transparent 60%),
+      radial-gradient(38vmax 38vmax at 82% 22%, rgba(56,217,196,.18), transparent 60%),
+      radial-gradient(46vmax 46vmax at 60% 100%, rgba(79,168,255,.10), transparent 60%);
+    filter:blur(8px);
+  }
+  a{color:var(--blue); text-decoration:none}
+  .wrap{max-width:1040px; margin:0 auto; padding:0 24px}
+  header{display:flex; align-items:center; justify-content:space-between; padding:26px 0}
+  .brand{display:flex; align-items:center; gap:12px; font-weight:700; font-size:18px}
+  .brand img{width:34px; height:34px; border-radius:9px}
+  nav a{color:var(--muted); margin-left:22px; font-size:14px}
+  nav a:hover{color:var(--ink)}
+  .hero{text-align:center; padding:46px 0 8px}
+  .pill{
+    display:inline-block; font-size:13px; color:var(--teal);
+    border:1px solid var(--line); border-radius:999px; padding:5px 14px; margin-bottom:22px;
+    background:var(--card);
+  }
+  h1{font-size:clamp(34px,6vw,60px); line-height:1.05; margin:0 0 18px; letter-spacing:-.02em}
+  .grad{background:linear-gradient(100deg,var(--blue),var(--teal)); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .sub{font-size:clamp(17px,2.5vw,21px); color:var(--muted); max-width:680px; margin:0 auto 30px}
+  .cta{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:10px}
+  .btn{
+    display:inline-flex; align-items:center; gap:9px; padding:13px 24px; border-radius:13px;
+    font-weight:600; font-size:15px; border:1px solid transparent; cursor:pointer;
+  }
+  .btn-primary{background:linear-gradient(100deg,var(--blue),var(--teal)); color:#06122a}
+  .btn-primary:hover{filter:brightness(1.07)}
+  .btn-ghost{background:var(--card); border-color:var(--line); color:var(--ink)}
+  .btn-ghost:hover{border-color:rgba(255,255,255,.25)}
+  .note{font-size:13px; color:var(--muted); margin-top:6px}
+  .shot{
+    margin:42px auto 0; max-width:980px; border-radius:18px; overflow:hidden;
+    border:1px solid var(--line); box-shadow:0 30px 80px -30px rgba(0,0,0,.7);
+    background:var(--card);
+  }
+  .shot img{display:block; width:100%}
+  section{padding:64px 0}
+  h2{font-size:clamp(26px,4vw,36px); letter-spacing:-.02em; margin:0 0 8px}
+  .lead{color:var(--muted); margin:0 0 34px; max-width:680px}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:18px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px;
+  }
+  .card h3{margin:0 0 8px; font-size:17px}
+  .card p{margin:0; color:var(--muted); font-size:14.5px}
+  .emoji{font-size:22px; display:block; margin-bottom:10px}
+  table{width:100%; border-collapse:collapse; font-size:14.5px; margin-top:8px}
+  th,td{padding:12px 10px; border-bottom:1px solid var(--line); text-align:center}
+  th:first-child,td:first-child{text-align:left; color:var(--muted)}
+  thead th{color:var(--ink); font-weight:700}
+  .yes{color:var(--teal); font-weight:700}
+  .strata{background:rgba(79,168,255,.07)}
+  .shots2{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px}
+  .shots2 .shot{margin:0}
+  @media(max-width:720px){.shots2{grid-template-columns:1fr}}
+  pre{background:#070b16; border:1px solid var(--line); border-radius:12px; padding:14px 16px; overflow:auto; font-size:14px}
+  code{font-family:"SF Mono",ui-monospace,Menlo,monospace}
+  footer{padding:48px 0; text-align:center; color:var(--muted); font-size:14px; border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <img src="https://raw.githubusercontent.com/benoneill66/strata/main/src-tauri/icons/128x128@2x.png" alt="Strata icon" />
+      Strata
+    </div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/benoneill66/strata">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <span class="pill">Free &amp; open source · macOS · Postgres</span>
+    <h1>See your Postgres data<br><span class="grad">the instant you click.</span></h1>
+    <p class="sub">A native macOS Postgres browser — the fast counterpart to pgAdmin. Pick a connection, click a table, and your data is on screen. Filter, sort and edit without writing SQL.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/benoneill66/strata/releases/latest">⬇︎ Download for macOS</a>
+      <a class="btn btn-ghost" href="https://github.com/benoneill66/strata">★ Star on GitHub</a>
+    </div>
+    <p class="note">Universal · Intel + Apple Silicon · MIT licensed</p>
+
+    <div class="shot">
+      <!-- demo.gif is generated by scripts/capture-demo.mjs; falls back to a static shot -->
+      <img src="demo.gif" alt="Browsing a Postgres table in Strata" onerror="this.onerror=null;this.src='browse.png'" />
+    </div>
+  </div>
+
+  <section id="features">
+    <h2>Built for the quick lookup, not the SQL marathon</h2>
+    <p class="lead">Most tools optimize the query editor. Strata optimizes the thing you actually do 80% of the time: find a row, check a value, fix a typo — fast.</p>
+    <div class="grid">
+      <div class="card"><span class="emoji">⚡</span><h3>Click &amp; browse</h3><p>Connection → table → data, instantly. Stackable filters, column sort, exact counts on demand. No SQL required.</p></div>
+      <div class="card"><span class="emoji">🤖</span><h3>AI SQL, no API key</h3><p>Ask in plain English and Strata writes the SQL from your live schema — riding your existing Claude or Codex CLI sign-in. No key, no per-token bill.</p></div>
+      <div class="card"><span class="emoji">🛡️</span><h3>Safe edits</h3><p>Inline edits stage locally and commit in one transaction that rolls back unless every row matches its primary key exactly once.</p></div>
+      <div class="card"><span class="emoji">🗺️</span><h3>Interactive schema map</h3><p>A force-laid-out ER diagram of your whole schema — pan, zoom, search, and click a table to light up everything it links to.</p></div>
+      <div class="card"><span class="emoji">🔎</span><h3>EXPLAIN, visualized</h3><p>Query plans as a flame-style tree with row-estimate badges — plus one-click AI diagnosis of the bottleneck. ANALYZE always rolls back, safe even on writes.</p></div>
+      <div class="card"><span class="emoji">🍎</span><h3>Actually native</h3><p>Real macOS vibrancy, hidden title bar, small binary. Built with Tauri — no Electron, no bundled Chromium.</p></div>
+    </div>
+
+    <div class="shots2">
+      <div class="shot"><img src="schema.png" alt="The interactive schema explorer" /></div>
+      <div class="shot"><img src="query.png" alt="Asking a question in plain English" /></div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <h2>Why Strata?</h2>
+    <p class="lead">There are plenty of Postgres GUIs. Strata is deliberately narrow: the fastest way to look something up — or fix one row — on a Mac. If you need Windows/Linux or many engines, DBeaver or Beekeeper Studio are better fits.</p>
+    <table>
+      <thead><tr><th>&nbsp;</th><th class="strata">Strata</th><th>pgAdmin</th><th>TablePlus</th><th>Postico</th><th>DBeaver</th></tr></thead>
+      <tbody>
+        <tr><td>Price</td><td class="strata"><span class="yes">Free</span></td><td>Free</td><td>$99+</td><td>Paid</td><td>Free CE</td></tr>
+        <tr><td>Open source</td><td class="strata"><span class="yes">✓ MIT</span></td><td>✓</td><td>✗</td><td>✗</td><td>✓</td></tr>
+        <tr><td>Mac-native (no Electron/Java/web)</td><td class="strata"><span class="yes">✓</span></td><td>✗</td><td>✓</td><td>✓</td><td>✗</td></tr>
+        <tr><td>AI SQL with no API key</td><td class="strata"><span class="yes">✓</span></td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+        <tr><td>Interactive schema ER map</td><td class="strata"><span class="yes">✓</span></td><td>partial</td><td>✗</td><td>✗</td><td>✓</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="install">
+    <h2>Install in two steps</h2>
+    <p class="lead">Strata isn't code-signed with an Apple Developer ID yet, so the first launch needs one quick command. You only ever do it once.</p>
+    <ol style="color:var(--muted); max-width:680px">
+      <li><a href="https://github.com/benoneill66/strata/releases/latest">Download the latest <code>.dmg</code></a>, open it, and drag <b>Strata</b> into Applications.</li>
+      <li>Open Terminal and clear the quarantine flag once:</li>
+    </ol>
+    <pre><code>xattr -cr /Applications/Strata.app</code></pre>
+    <p class="note">Then just double-click Strata. Prefer no Terminal? Double-click, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>. The full source is on <a href="https://github.com/benoneill66/strata">GitHub</a> if you'd like to read or build it yourself.</p>
+  </section>
+
+</div>
+
+<footer>
+  <p>Built by <a href="https://github.com/benoneill66">Ben O'Neill</a> · MIT licensed · <a href="https://github.com/benoneill66/strata">github.com/benoneill66/strata</a></p>
+  <p>If Strata saves you time, you can <a href="https://buymeacoffee.com/benoneill">buy me a coffee</a> ☕</p>
+</footer>
+</body>
+</html>
