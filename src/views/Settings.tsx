@@ -152,6 +152,25 @@ export function Settings({
       </div>
 
       <div className="glass-card" style={{ padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div className="label">Anonymous usage stats</div>
+          <button
+            role="switch"
+            aria-checked={settings.telemetry_enabled}
+            className={`switch ${settings.telemetry_enabled ? "on" : ""}`}
+            onClick={() => onSettings({ ...settings, telemetry_enabled: !settings.telemetry_enabled })}
+          >
+            <span className="knob" />
+          </button>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.5 }}>
+          Strata sends one anonymous ping on launch — a random install ID, the app version, and your OS —
+          so I can see roughly how many people use it. No connection details, queries, table names, or
+          personal data are ever sent. Turn it off here, or set <span className="mono" style={{ fontSize: 11 }}>DO_NOT_TRACK=1</span>.
+        </div>
+      </div>
+
+      <div className="glass-card" style={{ padding: 18 }}>
         <div className="label" style={{ marginBottom: 10 }}>About</div>
         <div className="meta-grid">
           <span className="k">App</span><span className="v">Strata {version.data ?? "—"} — native Postgres browser</span>

@@ -160,6 +160,23 @@ Connection profile metadata and prefs live in
 `~/Library/Application Support/app.strata.desktop/settings.json`. Passwords are
 stored separately in the macOS Keychain under the `Strata` service.
 
+## Telemetry
+
+Strata sends **one anonymous ping when it launches** so I can gauge roughly how
+many people use it. The ping contains only:
+
+- a **random install ID** (a UUID generated on first run — not tied to you or
+  your machine),
+- the **app version**, and
+- your **OS and CPU architecture** (e.g. `macos` / `aarch64`).
+
+It never sends connection details, hostnames, credentials, queries, table or
+column names, or any personal data. Pings go to a self-hosted
+[PostHog](https://posthog.com) instance.
+
+To turn it off, flip **Settings → Anonymous usage stats** off, or set
+`DO_NOT_TRACK=1` in your environment. Debug builds never send.
+
 ## License
 
 [MIT](LICENSE) © Ben O'Neill. Free to use, fork, and build on.

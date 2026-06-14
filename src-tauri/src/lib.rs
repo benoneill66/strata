@@ -4,6 +4,7 @@ pub mod export;
 pub mod models;
 pub mod pg;
 pub mod secrets;
+pub mod telemetry;
 
 use commands::AppState;
 use models::Settings;
@@ -31,18 +32,30 @@ pub fn run() {
             // move it over and rewrite the file stripped, one-time migration.
             // Do not hydrate every Keychain entry at launch; macOS prompts per
             // item and can make startup look like an authentication loop.
-            let mut migrate = false;
+            let mut dirty = false;
             for c in &mut settings.connections {
                 if !c.password.is_empty() && secrets::set(&c.id, &c.password).is_ok() {
                     c.password.clear();
-                    migrate = true;
+                    dirty = true;
                 }
             }
-            if migrate {
+            // Mint a stable anonymous install id on first launch for telemetry.
+            if settings.install_id.is_empty() {
+                settings.install_id = uuid::Uuid::new_v4().to_string();
+                dirty = true;
+            }
+            if dirty {
                 if let Ok(json) = serde_json::to_string_pretty(&settings) {
                     let _ = std::fs::write(&settings_path, json);
                 }
             }
+
+            // Anonymous launch ping (off if disabled in Settings, DO_NOT_TRACK,
+            // or a debug build). Fire-and-forget — never blocks startup.
+            if telemetry::enabled(settings.telemetry_enabled) {
+                telemetry::record_launch(settings.install_id.clone());
+            }
+
             app.manage(AppState {
                 settings: RwLock::new(settings),
                 settings_path,

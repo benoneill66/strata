@@ -27,6 +27,13 @@ pub struct Settings {
     pub row_limit: u32,
     #[serde(default = "default_ai_provider")]
     pub ai_provider: AiProvider,
+    /// Random per-install identifier for anonymous usage telemetry. Generated
+    /// on first launch (see `lib.rs`) and never tied to anything personal.
+    #[serde(default)]
+    pub install_id: String,
+    /// Opt-out switch for the anonymous launch ping (default on).
+    #[serde(default = "default_true")]
+    pub telemetry_enabled: bool,
 }
 
 impl Default for Settings {
@@ -35,8 +42,14 @@ impl Default for Settings {
             connections: vec![],
             row_limit: 200,
             ai_provider: default_ai_provider(),
+            install_id: String::new(),
+            telemetry_enabled: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,7 +9,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return mod.invoke<T>(cmd, args);
 }
 
-const demoSettings: Settings = { connections: demo.demoConnections, row_limit: 200, ai_provider: "claude" };
+const demoSettings: Settings = { connections: demo.demoConnections, row_limit: 200, ai_provider: "claude", install_id: "demo", telemetry_enabled: false };
 const demoConnected = new Set<string>();
 
 export const api = {
@@ -20,6 +20,7 @@ export const api = {
     if (IS_TAURI) return invoke("save_settings", { settings });
     demoSettings.connections = settings.connections;
     demoSettings.row_limit = settings.row_limit;
+    demoSettings.telemetry_enabled = settings.telemetry_enabled;
     return demo.wait(undefined, 80);
   },
 

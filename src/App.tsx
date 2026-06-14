@@ -38,7 +38,7 @@ export default function App() {
 
   useEffect(() => {
     if (!IS_TAURI) document.body.classList.add("no-native");
-    api.getSettings().then(setSettings).catch(() => setSettings({ connections: [], row_limit: 200, ai_provider: "claude" }));
+    api.getSettings().then(setSettings).catch(() => setSettings({ connections: [], row_limit: 200, ai_provider: "claude", install_id: "", telemetry_enabled: false }));
   }, []);
 
   useEffect(() => {

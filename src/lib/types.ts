@@ -16,6 +16,8 @@ export interface Settings {
   connections: ConnectionProfile[];
   row_limit: number;
   ai_provider: AiProvider;
+  install_id: string;
+  telemetry_enabled: boolean;
 }
 
 export type AiProvider = "claude" | "codex";
