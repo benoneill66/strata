@@ -130,6 +130,39 @@ pub struct RowUpdate {
     pub changes: Vec<CellValue>,
 }
 
+/// One message in an agent conversation, sent up from the frontend. The full
+/// thread is re-sent each turn since the CLI is stateless.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatMsg {
+    /// "user" | "assistant"
+    pub role: String,
+    pub content: String,
+}
+
+/// Streamed back to the frontend over a Tauri channel during `agent_chat`.
+/// `Step` reports a read-only query the agent ran (or refused); `Token` carries
+/// an answer delta; `Done`/`Error` close the stream.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentEvent {
+    Step {
+        sql: String,
+        columns: Vec<String>,
+        rows: Vec<Vec<Option<String>>>,
+        row_count: usize,
+        truncated: bool,
+        /// set when the query was rejected (write) or failed to execute
+        error: Option<String>,
+    },
+    Token {
+        text: String,
+    },
+    Done,
+    Error {
+        message: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AiStatus {
     pub provider: AiProvider,

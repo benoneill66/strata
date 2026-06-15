@@ -8,6 +8,7 @@ import { Toaster, toast } from "./components/ui";
 import { Browse } from "./views/Browse";
 import { Schema } from "./views/Schema";
 import { Query } from "./views/Query";
+import { Agent } from "./views/Agent";
 import { Monitor } from "./views/Monitor";
 import { Settings } from "./views/Settings";
 
@@ -197,6 +198,15 @@ export default function App() {
               onNew={newConnection}
               onSwitchDatabase={switchDatabase}
               seedSql={seedSql}
+            />
+          </div>
+          <div style={{ display: view === "agent" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <Agent
+              connId={activeId && activeInfo ? activeId : null}
+              database={activeInfo?.database ?? null}
+              aiProvider={settings.ai_provider}
+              hasConnections={hasConnections}
+              onNew={newConnection}
             />
           </div>
           <div style={{ display: view === "monitor" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>

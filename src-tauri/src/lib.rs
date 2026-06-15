@@ -107,6 +107,7 @@ pub fn run() {
             commands::diagnose_plan,
             commands::ai_status,
             commands::generate_sql,
+            commands::agent_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Strata")

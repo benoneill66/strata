@@ -1,7 +1,7 @@
 // Fictional data for browser dev (bun run dev) — lets the UI render without
 // the Tauri backend or a real database, and keeps screenshots clean.
 
-import type { ColumnInfo, ConnectionProfile, Filter, FkRef, GraphNode, MonitorSnapshot, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo, TableRelations } from "./types";
+import type { AgentEvent, ChatMsg, ColumnInfo, ConnectionProfile, Filter, FkRef, GraphNode, MonitorSnapshot, QualifiedTable, QueryResult, SchemaGraph, SchemaInfo, TableInfo, TableRelations } from "./types";
 
 export const demoConnections: ConnectionProfile[] = [
   {
@@ -303,4 +303,40 @@ export function demoMonitor(): MonitorSnapshot {
 
 export function wait<T>(data: T, ms = 350): Promise<T> {
   return new Promise((res) => setTimeout(() => res(data), ms));
+}
+
+/** Browser-dev stand-in for the streaming chat agent: emits a fake query step,
+ *  then streams a canned markdown answer word-by-word. */
+export function demoAgentStream(messages: ChatMsg[], onEvent: (e: AgentEvent) => void): Promise<void> {
+  const q = messages.filter((m) => m.role === "user").pop()?.content ?? "your question";
+  const answer = `Here's what I found for **${q.trim()}**:
+
+I queried \`public.users\` and the matching row exists — id **365**, plan **team**, \`is_active = 0\`. The inactive flag is almost certainly why it isn't showing up in the app.
+
+### Data sources
+- \`public.users\` — id, plan, is_active, created_at
+
+### Assumptions
+- An \`is_active = 0\` row is treated as disabled by the application.`;
+
+  return new Promise((resolve) => {
+    let t = 0;
+    const at = (ms: number, fn: () => void) => { t = Math.max(t, 0) + ms; setTimeout(fn, t); };
+
+    at(450, () =>
+      onEvent({
+        type: "step",
+        sql: "SELECT id, plan, is_active, created_at FROM public.users WHERE email ILIKE '%' LIMIT 5",
+        columns: ["id", "plan", "is_active", "created_at"],
+        rows: [["365", "team", "0", "2025-04-05 13:49:07"]],
+        row_count: 1,
+        truncated: false,
+        error: null,
+      })
+    );
+
+    const words = answer.match(/\s*\S+/g) ?? [answer];
+    words.forEach((w) => at(28, () => onEvent({ type: "token", text: w })));
+    at(120, () => { onEvent({ type: "done" }); resolve(); });
+  });
 }

@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::models::AiProvider;
@@ -84,6 +84,12 @@ fn resolve_bin(name: &str, home_relative: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// A sane PATH for CLI shell-outs — GUI launch inherits a slim one.
+fn path_env() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    format!("{home}/.local/bin:{home}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
 }
 
 fn provider_bin(provider: AiProvider) -> Option<&'static str> {
@@ -393,4 +399,270 @@ pub async fn generate_sql(
         .trim()
         .to_string();
     Ok(SqlSuggestion { sql, explanation })
+}
+
+// ---------- chat agent ----------
+
+/// Whether `sql` is a single read-only statement we're willing to auto-run for
+/// the agent. Mirror of `isReadOnly` in `views/Query.tsx`: must start with a
+/// read verb and contain no write/DDL keyword as a bare word. Comments stripped
+/// first so they can't hide a verb.
+pub fn is_read_only(sql: &str) -> bool {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut s = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i = (i + 2).min(chars.len());
+        } else {
+            s.push(chars[i]);
+            i += 1;
+        }
+    }
+    let lower = s.trim().to_ascii_lowercase();
+    let first = lower
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or("");
+    if !matches!(first, "select" | "with" | "explain" | "show" | "table" | "values") {
+        return false;
+    }
+    const FORBIDDEN: &[&str] = &[
+        "insert", "update", "delete", "drop", "alter", "truncate", "create", "grant", "revoke",
+        "comment", "merge", "call", "do", "vacuum", "reindex", "copy",
+    ];
+    !lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|tok| FORBIDDEN.contains(&tok))
+}
+
+/// System prompt for the chat agent: a read-only Postgres analyst that answers
+/// by running queries via the `RUN_SQL:` protocol the loop in `commands.rs`
+/// drives. Identifier-quoting rules match `generate_sql`.
+pub fn agent_system_prompt(pg_version: &str, db: &str, schema_ctx: &str) -> String {
+    format!(
+        "You are Strata's data agent: a senior PostgreSQL analyst embedded in a desktop \
+Postgres browser. You answer the user's questions about THEIR database by running \
+READ-ONLY SQL against it and interpreting the results. You have NO other tools and NO \
+external data.\n\n\
+HOW TO ACT — on every turn choose exactly ONE:\n\
+1. To look something up, reply with a SINGLE message that starts with `RUN_SQL:` followed \
+by one read-only PostgreSQL query, and NOTHING else — no prose, no markdown, no code \
+fences. Example:\n\
+RUN_SQL: SELECT * FROM public.users WHERE email = 'a@b.com' LIMIT 5\n\
+The query runs immediately and its rows are handed back to you so you can keep going.\n\
+2. When you have enough information, reply with your FINAL answer in markdown (any message \
+that does NOT start with `RUN_SQL:`).\n\n\
+RULES:\n\
+- Target PostgreSQL {pg_version}. Use ONLY tables and columns from the schema below; never invent names.\n\
+- Copy identifiers exactly as shown. PostgreSQL folds unquoted names to lowercase, so \
+camelCase/PascalCase identifiers (e.g. \"dateOfBirth\") MUST stay double-quoted everywhere, including after aliases.\n\
+- Schema-qualify tables when helpful (e.g. public.users). Use ILIKE for case-insensitive text matching.\n\
+- Queries MUST be read-only (SELECT/WITH/EXPLAIN/SHOW); a write will be rejected. Add a sensible LIMIT (<= 200) to row-returning queries.\n\
+- Prefer several small focused queries over one giant one. Never guess values — look them up.\n\
+- Be concise and concrete; quote the actual values you found.\n\n\
+ANSWER FORMAT (markdown): lead with the direct answer, then where useful add a short \
+`### Data sources` section (tables/columns used) and an `### Assumptions` section.\n\n\
+Database \"{db}\". Schema — table(col type, …):\n{schema_ctx}"
+    )
+}
+
+/// Run one streaming agent turn. `system` is the agent prompt; `user_input` is
+/// the full transcript (re-sent each turn, since the CLI is stateless).
+/// `on_token` is invoked with each text delta as it streams. Returns the full
+/// turn text. Claude streams token-by-token; Codex returns the answer in one
+/// chunk (its exec stream format differs).
+pub async fn stream_turn(
+    provider: AiProvider,
+    system: &str,
+    user_input: &str,
+    on_token: impl FnMut(&str),
+) -> Result<String, String> {
+    match provider {
+        AiProvider::Claude => run_claude_stream(system, user_input, on_token).await,
+        AiProvider::Codex => {
+            let mut on_token = on_token;
+            let text = run_codex(system, user_input).await?;
+            on_token(&text);
+            Ok(text)
+        }
+    }
+}
+
+/// `claude -p` with `--output-format stream-json --include-partial-messages`,
+/// parsing the JSONL event stream for `text_delta`s and forwarding them live.
+async fn run_claude_stream(
+    system: &str,
+    user_input: &str,
+    mut on_token: impl FnMut(&str),
+) -> Result<String, String> {
+    let bin = claude_bin().ok_or(
+        "Claude CLI not found. Install it (npm i -g @anthropic-ai/claude-code) and sign in.",
+    )?;
+
+    let mut cmd = Command::new(bin);
+    cmd.arg("-p")
+        .arg("--model")
+        .arg(CLAUDE_MODEL)
+        .arg("--effort")
+        .arg(CLAUDE_EFFORT)
+        .arg("--strict-mcp-config")
+        .arg("--allowed-tools")
+        .arg("")
+        .arg("--system-prompt")
+        .arg(system)
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--include-partial-messages")
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("PATH", path_env());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Could not launch Claude CLI: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(user_input.as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    }
+
+    let stdout = child.stdout.take().ok_or("Claude CLI produced no stdout")?;
+    let stderr = child.stderr.take();
+    let stderr_task = tokio::spawn(async move {
+        let mut s = String::new();
+        if let Some(mut e) = stderr {
+            let _ = e.read_to_string(&mut s).await;
+        }
+        s
+    });
+
+    let mut reader = BufReader::new(stdout).lines();
+    let mut full = String::new();
+    let mut result_text: Option<String> = None;
+    let mut streamed_any = false;
+
+    let read = async {
+        while let Some(line) = reader
+            .next_line()
+            .await
+            .map_err(|e| format!("Claude stream read error: {e}"))?
+        {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let v: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            match v.get("type").and_then(|t| t.as_str()) {
+                // partial token deltas (--include-partial-messages)
+                Some("stream_event") => {
+                    let ev = v.get("event");
+                    let is_delta = ev
+                        .and_then(|e| e.get("type"))
+                        .and_then(|t| t.as_str())
+                        == Some("content_block_delta");
+                    if is_delta {
+                        if let Some(t) = ev
+                            .and_then(|e| e.get("delta"))
+                            .and_then(|d| d.get("text"))
+                            .and_then(|t| t.as_str())
+                        {
+                            full.push_str(t);
+                            on_token(t);
+                            streamed_any = true;
+                        }
+                    }
+                }
+                // authoritative final text
+                Some("result") => {
+                    if let Some(r) = v.get("result").and_then(|r| r.as_str()) {
+                        result_text = Some(r.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok::<(), String>(())
+    };
+
+    match tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), read).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            let _ = child.start_kill();
+            return Err("Claude CLI timed out.".into());
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Claude CLI failed: {e}"))?;
+    let stderr_out = stderr_task.await.unwrap_or_default();
+
+    if !status.success() && !streamed_any && result_text.is_none() {
+        let msg = stderr_out.trim();
+        return Err(if msg.is_empty() {
+            "Claude CLI exited with an error.".into()
+        } else {
+            format!("Claude CLI: {msg}")
+        });
+    }
+
+    // Older CLIs without partial deltas: stream the final result in one shot.
+    if !streamed_any {
+        if let Some(r) = &result_text {
+            on_token(r);
+            full = r.clone();
+        }
+    } else if full.is_empty() {
+        if let Some(r) = result_text {
+            full = r;
+        }
+    }
+    Ok(full)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_read_only;
+
+    #[test]
+    fn allows_reads() {
+        assert!(is_read_only("SELECT * FROM users"));
+        assert!(is_read_only("  with t as (select 1) select * from t"));
+        assert!(is_read_only("EXPLAIN ANALYZE SELECT 1"));
+        assert!(is_read_only("-- a comment\nselect 1"));
+    }
+
+    #[test]
+    fn rejects_writes_and_ddl() {
+        assert!(!is_read_only("DELETE FROM users"));
+        assert!(!is_read_only("UPDATE users SET x = 1"));
+        assert!(!is_read_only("insert into t values (1)"));
+        assert!(!is_read_only("drop table t"));
+        // a write hidden after a leading SELECT-looking CTE is still caught
+        assert!(!is_read_only("with x as (select 1) delete from t"));
+        // comment can't smuggle a verb past the first-word check
+        assert!(!is_read_only("/* select */ truncate t"));
+    }
+
+    #[test]
+    fn underscored_identifiers_are_not_keywords() {
+        assert!(is_read_only("select created_at, updated_by from t"));
+    }
 }

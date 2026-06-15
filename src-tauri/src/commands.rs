@@ -5,16 +5,17 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 
 use parking_lot::RwLock;
+use tauri::ipc::Channel;
 use tauri::State;
 use tokio_postgres::Client;
 
 use crate::ai::{self, SqlSuggestion};
 use crate::export;
 use crate::models::{
-    AiProvider, AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, FkRef, GraphColumn,
-    GraphEdge, GraphNode, MonitorActivity, MonitorLock, MonitorOverview, MonitorSnapshot,
-    MonitorStatement, MonitorTableHealth, QualifiedTable, QueryResult, RowUpdate, SchemaGraph,
-    SchemaInfo, Settings, TableInfo, TableRelations,
+    AgentEvent, AiProvider, AiStatus, CellValue, ChatMsg, ColumnInfo, ConnectionProfile, DbInfo,
+    Filter, FkRef, GraphColumn, GraphEdge, GraphNode, MonitorActivity, MonitorLock, MonitorOverview,
+    MonitorSnapshot, MonitorStatement, MonitorTableHealth, QualifiedTable, QueryResult, RowUpdate,
+    SchemaGraph, SchemaInfo, Settings, TableInfo, TableRelations,
 };
 use crate::pg::{self, Pool};
 use crate::secrets;
@@ -983,14 +984,22 @@ pub async fn diagnose_plan(state: State<'_, AppState>, sql: String, plan: String
 /// per relation across user schemas, capped so the prompt stays bounded on huge
 /// databases. Identifiers that PostgreSQL would fold or reject unquoted are
 /// rendered with quotes so the model can copy exact casing.
-async fn schema_context(client: &tokio_postgres::Client) -> R<(String, bool)> {
+async fn schema_context(
+    client: &tokio_postgres::Client,
+    schema: Option<&str>,
+) -> R<(String, bool)> {
     const MAX_CHARS: usize = 24_000;
+    // Scope to one schema when asked (agent's schema picker), else all user schemas.
+    let scope = match schema {
+        Some(s) => format!("n.nspname = {}", pg::quote_lit(s)),
+        None => HIDDEN_SCHEMAS.to_string(),
+    };
     let sql = format!(
         "SELECT n.nspname, c.relname, a.attname, format_type(a.atttypid, a.atttypmod) \
          FROM pg_class c \
          JOIN pg_namespace n ON n.oid = c.relnamespace \
          JOIN pg_attribute a ON a.attrelid = c.oid \
-         WHERE {HIDDEN_SCHEMAS} AND c.relkind IN ('r','p','v','m','f') \
+         WHERE {scope} AND c.relkind IN ('r','p','v','m','f') \
                 AND a.attnum > 0 AND NOT a.attisdropped \
          ORDER BY n.nspname, c.relname, a.attnum"
     );
@@ -1062,11 +1071,283 @@ pub async fn generate_sql(state: State<'_, AppState>, id: String, question: Stri
     let row = info.rows.first().ok_or("no response from server")?;
     let version = cell(row, 0);
     let db = cell(row, 1);
-    let (mut ctx, truncated) = schema_context(&client).await?;
+    let (mut ctx, truncated) = schema_context(&client, None).await?;
     if truncated {
         ctx.push_str("… (schema truncated; ask about a specific table if your target is missing)\n");
     }
     ai::generate_sql(provider, &version, &db, &ctx, &question).await
+}
+
+/// Chat agent: a backend-orchestrated ReAct loop. Each turn the model either
+/// emits `RUN_SQL: <query>` (we run it read-only and feed the rows back) or
+/// streams its final markdown answer. Tokens, query steps, and completion are
+/// pushed to the frontend over `on_event` as they happen.
+#[tauri::command]
+pub async fn agent_chat(
+    state: State<'_, AppState>,
+    id: String,
+    schema: Option<String>,
+    messages: Vec<ChatMsg>,
+    on_event: Channel<AgentEvent>,
+) -> R<()> {
+    /// Max query rounds before we force an answer — bounds runaway loops.
+    const MAX_STEPS: usize = 6;
+    /// Rows fetched per agent query, and the subset shown back to the model.
+    const ROW_CAP: usize = 200;
+    const MODEL_ROWS: usize = 50;
+    const CELL_CAP: usize = 200;
+
+    let provider = selected_ai_provider(&state);
+    // client_for hands back an Arc<Client> cloned out of the lock, so we can
+    // hold it across the whole loop without blocking the pool.
+    let client = client_for(&state, &id).await?;
+
+    let info = pg::simple(
+        &client,
+        "SELECT current_setting('server_version'), current_database()",
+        1,
+    )
+    .await?;
+    let row = info.rows.first().ok_or("no response from server")?;
+    let version = cell(row, 0);
+    let db = cell(row, 1);
+    let (mut ctx, truncated) = schema_context(&client, schema.as_deref()).await?;
+    if truncated {
+        ctx.push_str("… (schema truncated)\n");
+    }
+    let system = ai::agent_system_prompt(&version, &db, &ctx);
+
+    // Seed the transcript with the prior conversation; the last message is the
+    // new question. The agent's own RUN_SQL actions + results get appended below.
+    let mut transcript = String::new();
+    for m in &messages {
+        let who = if m.role == "user" { "User" } else { "Assistant" };
+        transcript.push_str(&format!("{who}: {}\n\n", m.content.trim()));
+    }
+
+    let run = async {
+        for step in 0..MAX_STEPS {
+            let last = step == MAX_STEPS - 1;
+            let mut input = transcript.clone();
+            if last {
+                input.push_str(
+                    "\n(You have reached the query limit — give your final answer now, no more RUN_SQL.)\n",
+                );
+            }
+
+            // Stream the turn, classifying tokens: suppress a RUN_SQL turn,
+            // forward an answer turn live to the UI.
+            let mut sink = TurnSink::new(on_event.clone());
+            let full = ai::stream_turn(provider, &system, &input, |t| sink.push(t)).await?;
+            let mode = sink.finish(&full);
+
+            match mode {
+                TurnMode::Answer => return Ok(()),
+                TurnMode::Tool => {
+                    let sql = strip_run_sql(&full);
+                    if sql.is_empty() {
+                        // Treated as a tool turn but no SQL — fall back to answer.
+                        if full.trim().is_empty() {
+                            return Ok(());
+                        }
+                        on_event
+                            .send(AgentEvent::Token { text: full.clone() })
+                            .map_err(|e| e.to_string())?;
+                        return Ok(());
+                    }
+
+                    transcript.push_str(&format!("Assistant: RUN_SQL: {sql}\n"));
+
+                    if !ai::is_read_only(&sql) {
+                        let msg = "Rejected: only read-only queries are allowed.".to_string();
+                        on_event
+                            .send(AgentEvent::Step {
+                                sql: sql.clone(),
+                                columns: vec![],
+                                rows: vec![],
+                                row_count: 0,
+                                truncated: false,
+                                error: Some(msg.clone()),
+                            })
+                            .map_err(|e| e.to_string())?;
+                        transcript.push_str(&format!("Tool result: {msg}\n\n"));
+                        continue;
+                    }
+
+                    match pg::simple(&client, &sql, ROW_CAP).await {
+                        Ok(res) => {
+                            on_event
+                                .send(AgentEvent::Step {
+                                    sql: sql.clone(),
+                                    columns: res.columns.clone(),
+                                    rows: res.rows.iter().take(MODEL_ROWS).cloned().collect(),
+                                    row_count: res.rows.len(),
+                                    truncated: res.truncated,
+                                    error: None,
+                                })
+                                .map_err(|e| e.to_string())?;
+                            transcript.push_str(&render_result(&res, MODEL_ROWS, CELL_CAP));
+                        }
+                        Err(e) => {
+                            on_event
+                                .send(AgentEvent::Step {
+                                    sql: sql.clone(),
+                                    columns: vec![],
+                                    rows: vec![],
+                                    row_count: 0,
+                                    truncated: false,
+                                    error: Some(e.clone()),
+                                })
+                                .map_err(|ce| ce.to_string())?;
+                            transcript.push_str(&format!("Tool result: ERROR: {e}\n\n"));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    };
+
+    let outcome: R<()> = run.await;
+    match outcome {
+        Ok(()) => {
+            on_event
+                .send(AgentEvent::Done)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = on_event.send(AgentEvent::Error { message: e.clone() });
+            Err(e)
+        }
+    }
+}
+
+/// Strip a leading `RUN_SQL:` marker (case-insensitive) and trim the query.
+fn strip_run_sql(text: &str) -> String {
+    let t = text.trim_start();
+    let body = t
+        .get(..8)
+        .filter(|p| p.eq_ignore_ascii_case("RUN_SQL:"))
+        .map(|_| &t[8..])
+        .unwrap_or(t);
+    body.trim().trim_end_matches(';').trim().to_string()
+}
+
+/// Compact text rendering of a query result for the model's transcript.
+fn render_result(res: &QueryResult, max_rows: usize, cell_cap: usize) -> String {
+    let mut out = format!("Tool result ({} rows", res.rows.len());
+    if res.truncated {
+        out.push_str(", truncated");
+    }
+    out.push_str("):\n");
+    if res.columns.is_empty() {
+        out.push_str("(no columns)\n\n");
+        return out;
+    }
+    out.push_str(&res.columns.join(" | "));
+    out.push('\n');
+    for r in res.rows.iter().take(max_rows) {
+        let cells: Vec<String> = r
+            .iter()
+            .map(|c| {
+                let v = c.clone().unwrap_or_else(|| "NULL".into());
+                if v.chars().count() > cell_cap {
+                    format!("{}…", v.chars().take(cell_cap).collect::<String>())
+                } else {
+                    v
+                }
+            })
+            .collect();
+        out.push_str(&cells.join(" | "));
+        out.push('\n');
+    }
+    out.push('\n');
+    out
+}
+
+/// Per-turn token classifier. The first non-whitespace bytes tell us whether the
+/// model is making a `RUN_SQL:` tool call (suppress its tokens) or writing the
+/// final answer (forward every token live to the UI).
+enum TurnMode {
+    Answer,
+    Tool,
+}
+
+struct TurnSink {
+    channel: Channel<AgentEvent>,
+    buf: String,
+    decided: Option<TurnMode>,
+    emitted: usize,
+}
+
+impl TurnSink {
+    fn new(channel: Channel<AgentEvent>) -> Self {
+        Self {
+            channel,
+            buf: String::new(),
+            decided: None,
+            emitted: 0,
+        }
+    }
+
+    fn push(&mut self, t: &str) {
+        self.buf.push_str(t);
+        if self.decided.is_none() {
+            self.try_decide();
+        }
+        if matches!(self.decided, Some(TurnMode::Answer)) {
+            self.flush_answer();
+        }
+    }
+
+    /// Decide as soon as the leading content is unambiguous: a newline or 8+
+    /// non-whitespace chars settles whether it's `RUN_SQL:` or prose.
+    fn try_decide(&mut self) {
+        let trimmed = self.buf.trim_start();
+        if trimmed.is_empty() {
+            return;
+        }
+        let upper: String = trimmed.chars().take(8).collect::<String>().to_ascii_uppercase();
+        if upper == "RUN_SQL:" {
+            self.decided = Some(TurnMode::Tool);
+        } else if !"RUN_SQL:".starts_with(&upper) {
+            // Diverged from the marker prefix → it's an answer.
+            self.decided = Some(TurnMode::Answer);
+        } else if trimmed.contains('\n') || trimmed.chars().count() >= 8 {
+            // Enough seen, still not the marker → answer.
+            self.decided = Some(TurnMode::Answer);
+        }
+    }
+
+    fn flush_answer(&mut self) {
+        if self.buf.len() > self.emitted {
+            let chunk = self.buf[self.emitted..].to_string();
+            self.emitted = self.buf.len();
+            let _ = self.channel.send(AgentEvent::Token { text: chunk });
+        }
+    }
+
+    /// Resolve the turn after streaming ends. Returns the final mode, emitting
+    /// any not-yet-sent answer text (covers very short answers that never tripped
+    /// the mid-stream decision).
+    fn finish(&mut self, full: &str) -> TurnMode {
+        if self.decided.is_none() {
+            let upper: String = full.trim_start().chars().take(8).collect::<String>().to_ascii_uppercase();
+            self.decided = Some(if upper == "RUN_SQL:" {
+                TurnMode::Tool
+            } else {
+                TurnMode::Answer
+            });
+        }
+        if matches!(self.decided, Some(TurnMode::Answer)) {
+            self.flush_answer();
+        }
+        match self.decided.take() {
+            Some(TurnMode::Tool) => TurnMode::Tool,
+            _ => TurnMode::Answer,
+        }
+    }
 }
 
 #[cfg(test)]

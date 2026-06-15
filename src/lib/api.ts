@@ -1,4 +1,4 @@
-import type { AiStatus, CellValue, ColumnInfo, ConnectionProfile, DbInfo, Filter, MonitorSnapshot, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
+import type { AgentEvent, AiStatus, CellValue, ChatMsg, ColumnInfo, ConnectionProfile, DbInfo, Filter, MonitorSnapshot, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -150,6 +150,22 @@ export const api = {
 
   generateSql: (id: string, question: string): Promise<SqlSuggestion> =>
     IS_TAURI ? invoke("generate_sql", { id, question }) : demo.wait(demo.demoSuggestion(question), 900),
+
+  // Chat agent: a streaming ReAct loop in Rust. `onEvent` fires for each query
+  // step, answer token, and completion; the promise resolves when the stream
+  // ends. (Demo path simulates the stream client-side.)
+  agentChat: async (
+    id: string,
+    schema: string | null,
+    messages: ChatMsg[],
+    onEvent: (e: AgentEvent) => void
+  ): Promise<void> => {
+    if (!IS_TAURI) return demo.demoAgentStream(messages, onEvent);
+    const { Channel } = await import("@tauri-apps/api/core");
+    const channel = new Channel<AgentEvent>();
+    channel.onmessage = onEvent;
+    return invoke("agent_chat", { id, schema, messages, onEvent: channel });
+  },
 };
 
 // ---------- native window helpers ----------

@@ -221,6 +221,27 @@ export interface SqlSuggestion {
   explanation: string;
 }
 
+/** One message in an agent conversation. */
+export interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Streamed from `agent_chat` over a Tauri channel. */
+export type AgentEvent =
+  | {
+      type: "step";
+      sql: string;
+      columns: string[];
+      rows: (string | null)[][];
+      row_count: number;
+      truncated: boolean;
+      error: string | null;
+    }
+  | { type: "token"; text: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
 export interface QueryResult {
   columns: string[];
   rows: (string | null)[][];
