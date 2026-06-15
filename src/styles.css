@@ -529,6 +529,19 @@ body.no-native {
 }
 .erd-kind { font-size: 10px; color: var(--muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; flex-shrink: 0; }
 
+.erd-link-toggle {
+  flex-shrink: 0; display: grid; place-items: center;
+  width: 20px; height: 20px; margin-right: -4px; padding: 0;
+  border: none; border-radius: 6px; cursor: pointer;
+  color: var(--muted); background: transparent;
+  opacity: 0; transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.erd-node:hover .erd-link-toggle { opacity: 0.75; }
+.erd-link-toggle:hover { opacity: 1; color: var(--accent-2); background: rgba(255,255,255,0.08); }
+/* Keep the control visible while a table's links are muted, so it can be restored. */
+.erd-node.links-off .erd-link-toggle { opacity: 1; color: var(--accent-2); }
+.erd-node.links-off .erd-node-head { background: linear-gradient(180deg, rgba(120,130,150,0.12), rgba(120,130,150,0.03)); }
+
 .erd-col {
   display: flex; align-items: center; gap: 6px;
   padding: 0 10px;

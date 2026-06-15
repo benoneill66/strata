@@ -67,6 +67,8 @@ export const Icon = {
     svg(w, <line x1="5" y1="12" x2="19" y2="12" />),
   link: ({ w = 13 }: { w?: number } = {}) =>
     svg(w, <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>),
+  unlink: ({ w = 13 }: { w?: number } = {}) =>
+    svg(w, <><path d="M9 17H7A5 5 0 0 1 7 7h2" /><path d="M15 7h2a5 5 0 0 1 4 8" /><line x1="8" y1="12" x2="12" y2="12" /><line x1="2" y1="2" x2="22" y2="22" /></>),
   frame: ({ w = 14 }: { w?: number } = {}) =>
     svg(w, <><path d="M4 8V5a1 1 0 0 1 1-1h3" /><path d="M20 8V5a1 1 0 0 0-1-1h-3" /><path d="M4 16v3a1 1 0 0 0 1 1h3" /><path d="M20 16v3a1 1 0 0 1-1 1h-3" /></>),
   graph: ({ w = 17 }: { w?: number } = {}) =>

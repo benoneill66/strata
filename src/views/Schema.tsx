@@ -196,6 +196,7 @@ export function Schema({
   const [hover, setHover] = useState<string | null>(null);
   const [density, setDensity] = useState<Density>("keys");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [hiddenLinks, setHiddenLinks] = useState<Set<string>>(() => new Set()); // tables whose FK links are muted
 
   const [layout, setLayout] = useState<Layout>({});
   const [view, setView] = useState({ x: 0, y: 0, z: 1 }); // pan + zoom
@@ -259,6 +260,7 @@ export function Schema({
     setLayout(lay);
     setSel(null);
     setExpanded(new Set());
+    setHiddenLinks(new Set());
     fittedRef.current = false;
     if (doFit()) fittedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -361,6 +363,9 @@ export function Schema({
   const toggleExpand = useCallback((name: string) => {
     setExpanded((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
   }, []);
+  const toggleLinks = useCallback((name: string) => {
+    setHiddenLinks((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  }, []);
   const clickNode = useCallback((name: string) => {
     if (movedRef.current) return; // a drag, not a click
     setSel((s) => (s === name ? null : name));
@@ -453,6 +458,7 @@ export function Schema({
           const sNode = nodeByName.get(e.source);
           const tNode = nodeByName.get(e.target);
           if (!sp || !tp || !sNode || !tNode || e.source === e.target) return null;
+          if (hiddenLinks.has(e.source) || hiddenLinks.has(e.target)) return null;
           const sCols = shownCols(sNode, density, expanded);
           const tCols = shownCols(tNode, density, expanded);
           const sTop = sp.y - nodeH(sNode, density, expanded) / 2;
@@ -475,7 +481,7 @@ export function Schema({
         })}
       </svg>
     );
-  }, [g, layout, density, expanded, active, nodeByName]);
+  }, [g, layout, density, expanded, active, nodeByName, hiddenLinks]);
 
   const nodesEl = useMemo(() => {
     if (!g) return null;
@@ -487,10 +493,12 @@ export function Schema({
       const more = showsMore(nd, density, expanded) ? nd.columns.length - keyCols(nd).length : 0;
       const h = nodeH(nd, density, expanded);
       const dim = !!active && !lit(nd.name);
+      const hasLinks = neighbours.has(nd.name);
+      const linksOff = hiddenLinks.has(nd.name);
       return (
         <div
           key={nd.name}
-          className={`erd-node ${nd.name === sel ? "sel" : ""} ${dim ? "dim" : ""} ${matches(nd.name) ? "match" : ""}`}
+          className={`erd-node ${nd.name === sel ? "sel" : ""} ${dim ? "dim" : ""} ${matches(nd.name) ? "match" : ""} ${linksOff ? "links-off" : ""}`}
           style={{ left: p.x - NODE_W / 2, top: p.y - h / 2, width: NODE_W }}
           onMouseEnter={() => setHover(nd.name)}
           onMouseLeave={() => setHover((hh) => (hh === nd.name ? null : hh))}
@@ -503,6 +511,16 @@ export function Schema({
             </span>
             <span className="nm mono">{nd.name}</span>
             <span className="erd-kind">{nd.est_rows >= 0 ? estRows(nd.est_rows) : (TABLE_KINDS[nd.kind] ?? nd.kind)}</span>
+            {hasLinks && (
+              <button
+                className="erd-link-toggle no-drag"
+                title={linksOff ? "Show this table's foreign-key links" : "Hide this table's foreign-key links"}
+                onClick={(e) => { e.stopPropagation(); toggleLinks(nd.name); }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {linksOff ? <Icon.unlink w={12} /> : <Icon.link w={12} />}
+              </button>
+            )}
           </div>
           {cols.length > 0 && (
             <div>
@@ -532,7 +550,7 @@ export function Schema({
         </div>
       );
     });
-  }, [g, layout, density, expanded, active, sel, matches, neighbours, clickNode, toggleExpand, onPointerDown]);
+  }, [g, layout, density, expanded, active, sel, matches, neighbours, hiddenLinks, clickNode, toggleExpand, toggleLinks, onPointerDown]);
 
   if (!connId) {
     return hasConnections ? (
@@ -581,8 +599,20 @@ export function Schema({
           />
         </div>
 
-        {g && (
-          <span className="chip mono" title="tables · relationships">{g.nodes.length} tables · {g.edges.length} links</span>
+        {g && (() => {
+          const hidden = g.edges.filter((e) => e.source !== e.target && (hiddenLinks.has(e.source) || hiddenLinks.has(e.target))).length;
+          const shown = g.edges.filter((e) => e.source !== e.target).length - hidden;
+          return (
+            <span className="chip mono" title="tables · relationships">
+              {g.nodes.length} tables · {shown} links{hidden > 0 ? ` · ${hidden} hidden` : ""}
+            </span>
+          );
+        })()}
+
+        {hiddenLinks.size > 0 && (
+          <button className="btn btn-sm no-drag" onClick={() => setHiddenLinks(new Set())} title="Show all hidden foreign-key links">
+            <Icon.link w={13} /> Show all links
+          </button>
         )}
 
         <div style={{ flex: 1 }} />
