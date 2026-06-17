@@ -204,7 +204,6 @@ export function Schema({
   const vpRef = useRef<HTMLDivElement>(null);
   const drag = useRef<
     | { kind: "pan" | "node"; name?: string; sx: number; sy: number; ox: number; oy: number }
-    | { kind: "zoom"; sy: number; mx: number; my: number; z0: number; vx0: number; vy0: number }
     | null
   >(null);
   const movedRef = useRef(false); // distinguishes a drag from a click (read by click handlers)
@@ -316,17 +315,11 @@ export function Schema({
     if (doFit()) fittedRef.current = true;
   }
 
-  // ----- drag: pan background, move a node, or ⌘-drag to zoom -----
+  // ----- drag: pan background or move a node -----
   // (stable handlers so the memoised node/edge subtree doesn't rebuild)
   const onMove = useCallback((e: MouseEvent) => {
     const d = drag.current;
     if (!d) return;
-    if (d.kind === "zoom") {
-      movedRef.current = true;
-      const nz = Math.min(2, Math.max(0.12, d.z0 * Math.exp((d.sy - e.clientY) * 0.005)));
-      setView({ z: nz, x: d.mx - ((d.mx - d.vx0) / d.z0) * nz, y: d.my - ((d.my - d.vy0) / d.z0) * nz });
-      return;
-    }
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
@@ -347,14 +340,8 @@ export function Schema({
     e.stopPropagation();
     movedRef.current = false;
     const v = viewRef.current;
-    // ⌘ + drag on the background = zoom (vertical), anchored at the cursor
-    if (!name && (e.metaKey || e.altKey)) {
-      const rect = vpRef.current!.getBoundingClientRect();
-      drag.current = { kind: "zoom", sy: e.clientY, mx: e.clientX - rect.left, my: e.clientY - rect.top, z0: v.z, vx0: v.x, vy0: v.y };
-    } else {
-      const p = name ? layRef.current[name] : null;
-      drag.current = { kind: name ? "node" : "pan", name, sx: e.clientX, sy: e.clientY, ox: name && p ? p.x : v.x, oy: name && p ? p.y : v.y };
-    }
+    const p = name ? layRef.current[name] : null;
+    drag.current = { kind: name ? "node" : "pan", name, sx: e.clientX, sy: e.clientY, ox: name && p ? p.x : v.x, oy: name && p ? p.y : v.y };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [onMove, onUp]);
@@ -374,7 +361,7 @@ export function Schema({
   // Trackpad gestures via non-passive native listeners (React's onWheel is
   // passive, so it can't preventDefault the WKWebView's own pinch-zoom and
   // two-finger back-swipe; pinch arrives as Safari gesture* events, not wheel).
-  // Two-finger drag → pan · pinch → zoom · also ctrl+wheel → zoom (dev browser).
+  // Two-finger drag → pan · pinch → zoom · also ⌘/ctrl/alt+wheel → zoom.
   useEffect(() => {
     const vp = vpRef.current;
     if (!vp) return;
@@ -382,7 +369,7 @@ export function Schema({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = vp.getBoundingClientRect();
-      if (e.ctrlKey) {
+      if (e.ctrlKey || e.metaKey || e.altKey) {
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         const f = Math.min(1.6, Math.max(0.62, Math.exp(-e.deltaY * 0.01)));
         setView((v) => ({ z: clamp(v.z * f), x: mx - ((mx - v.x) / v.z) * clamp(v.z * f), y: my - ((my - v.y) / v.z) * clamp(v.z * f) }));
@@ -660,7 +647,7 @@ export function Schema({
           <div className="erd-legend mono">
             <span><span style={{ color: "var(--accent)" }}><Icon.key w={10} /></span> primary key</span>
             <span><span style={{ color: "var(--accent-2)" }}><Icon.link w={10} /></span> foreign key</span>
-            <span className="erd-hint">two-finger drag to pan · pinch or ⌘-drag to zoom</span>
+            <span className="erd-hint">two-finger drag to pan · pinch or ⌘-scroll to zoom</span>
           </div>
         )}
       </div>
