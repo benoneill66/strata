@@ -1,6 +1,7 @@
 pub mod ai;
 mod commands;
 pub mod export;
+pub mod extract;
 pub mod models;
 pub mod pg;
 pub mod secrets;
@@ -103,6 +104,7 @@ pub fn run() {
             commands::run_query,
             commands::export_table,
             commands::export_query,
+            commands::export_related,
             commands::explain_query,
             commands::diagnose_plan,
             commands::ai_status,

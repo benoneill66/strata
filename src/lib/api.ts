@@ -1,4 +1,4 @@
-import type { AgentEvent, AiStatus, CellValue, ChatMsg, ColumnInfo, ConnectionProfile, DbInfo, Filter, MonitorSnapshot, QualifiedTable, QueryResult, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
+import type { AgentEvent, AiStatus, CellValue, ChatMsg, ColumnInfo, ConnectionProfile, DbInfo, Filter, MonitorSnapshot, QualifiedTable, QueryResult, RelatedExportSummary, RowUpdate, SchemaGraph, SchemaInfo, Settings, SqlSuggestion, TableInfo, TableRelations } from "./types";
 import * as demo from "./demo";
 
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -127,6 +127,23 @@ export const api = {
   exportQuery: (id: string, sql: string, format: string, path: string): Promise<number> =>
     invoke("export_query", { id, sql, format, path }),
 
+  // Export a record and everything that references it (following FKs down) to a
+  // folder of CSVs. `keys` are the seed row's primary-key values; `dir` is the
+  // folder chosen via pickDirectory. (Tauri only — no demo backend to crawl.)
+  exportRelated: (
+    id: string,
+    schema: string,
+    table: string,
+    keys: CellValue[],
+    dir: string
+  ): Promise<RelatedExportSummary> =>
+    IS_TAURI
+      ? invoke("export_related", { id, schema, table, keys, dir })
+      : demo.wait(
+          { dir: `${dir}/${table}`, tables: [{ schema, table, row_count: 1 }], total_rows: 1, truncated: false },
+          400
+        ),
+
   explainQuery: (id: string, sql: string, analyze: boolean): Promise<string> =>
     IS_TAURI ? invoke("explain_query", { id, sql, analyze }) : demo.wait(demo.demoPlan(analyze), 450),
 
@@ -196,6 +213,15 @@ export async function saveDialog(defaultName: string, extension: string): Promis
     defaultPath: defaultName,
     filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
   });
+}
+
+/** Native folder picker. Returns the chosen directory, or null if cancelled or
+    not running under Tauri. */
+export async function pickDirectory(): Promise<string | null> {
+  if (!IS_TAURI) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ directory: true, multiple: false });
+  return typeof picked === "string" ? picked : null;
 }
 
 /** Open a URL in the user's default browser (falls back to window.open in dev). */

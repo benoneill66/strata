@@ -235,6 +235,27 @@ pub struct TableRelations {
     pub incoming: Vec<FkRef>,
 }
 
+// ---------- related-data export (FK descendant crawl) ----------
+
+/// One table written by `export_related`, with how many rows it contributed.
+#[derive(Debug, Clone, Serialize)]
+pub struct RelatedTable {
+    pub schema: String,
+    pub table: String,
+    pub row_count: u64,
+}
+
+/// Manifest returned after exporting a record and its descendants to a folder of
+/// CSVs. `dir` is the folder actually written (a subfolder of the chosen one).
+#[derive(Debug, Clone, Serialize)]
+pub struct RelatedExportSummary {
+    pub dir: String,
+    pub tables: Vec<RelatedTable>,
+    pub total_rows: u64,
+    /// true when the crawl hit its row ceiling and stopped early
+    pub truncated: bool,
+}
+
 // ---------- monitor ----------
 
 #[derive(Debug, Clone, Serialize)]

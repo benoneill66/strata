@@ -11,11 +11,13 @@ use tokio_postgres::Client;
 
 use crate::ai::{self, SqlSuggestion};
 use crate::export;
+use crate::extract;
 use crate::models::{
     AgentEvent, AiProvider, AiStatus, CellValue, ChatMsg, ColumnInfo, ConnectionProfile, DbInfo,
     Filter, FkRef, GraphColumn, GraphEdge, GraphNode, MonitorActivity, MonitorLock, MonitorOverview,
-    MonitorSnapshot, MonitorStatement, MonitorTableHealth, QualifiedTable, QueryResult, RowUpdate,
-    SchemaGraph, SchemaInfo, Settings, TableInfo, TableRelations,
+    MonitorSnapshot, MonitorStatement, MonitorTableHealth, QualifiedTable, QueryResult,
+    RelatedExportSummary, RelatedTable, RowUpdate, SchemaGraph, SchemaInfo, Settings, TableInfo,
+    TableRelations,
 };
 use crate::pg::{self, Pool};
 use crate::secrets;
@@ -955,6 +957,79 @@ pub async fn export_query(
     let content = export::render(fmt, &res.columns, &res.rows, &pg::quote_ident("query_result"))?;
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(res.rows.len() as u64)
+}
+
+/// Sanitize a string for use in a file or folder name: collapse any run of
+/// characters outside `[A-Za-z0-9_.-]` to a single underscore (mirrors the
+/// frontend `safeName`).
+fn safe_name(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_us = false;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
+            out.push(c);
+            prev_us = false;
+        } else if !prev_us {
+            out.push('_');
+            prev_us = true;
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "export".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Export a record and all of its descendants — every row that follows the seed
+/// row through incoming foreign keys, transitively — to a folder of CSVs, one
+/// `schema.table.csv` per table touched. The seed row is identified by its
+/// primary-key values (`keys`). Files land in a tidy subfolder of `dir` so the
+/// bundle stays self-contained; tables that contributed no rows are skipped.
+#[tauri::command]
+pub async fn export_related(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    keys: Vec<CellValue>,
+    dir: String,
+) -> R<RelatedExportSummary> {
+    let client = client_for(&state, &id).await?;
+    let collected = extract::collect_descendants(&client, &schema, &table, &keys).await?;
+
+    // subfolder: <table>-<pk values>, e.g. orders-1042
+    let pk_part: Vec<String> = keys
+        .iter()
+        .map(|k| k.value.clone().unwrap_or_else(|| "null".to_string()))
+        .collect();
+    let folder = safe_name(&format!("{}-{}", table, pk_part.join("-")));
+    let out_dir = PathBuf::from(&dir).join(&folder);
+    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+
+    let mut tables = Vec::new();
+    for t in &collected.tables {
+        if t.rows.is_empty() {
+            continue;
+        }
+        let content = export::render(export::Format::Csv, &t.columns, &t.rows, "")?;
+        let stem = safe_name(&format!("{}.{}", t.schema, t.table));
+        let file = out_dir.join(format!("{stem}.csv"));
+        std::fs::write(&file, content).map_err(|e| e.to_string())?;
+        tables.push(RelatedTable {
+            schema: t.schema.clone(),
+            table: t.table.clone(),
+            row_count: t.rows.len() as u64,
+        });
+    }
+
+    Ok(RelatedExportSummary {
+        dir: out_dir.to_string_lossy().to_string(),
+        tables,
+        total_rows: collected.total_rows as u64,
+        truncated: collected.truncated,
+    })
 }
 
 /// EXPLAIN the statement and return the plan JSON. With `analyze` the query

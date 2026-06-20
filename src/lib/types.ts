@@ -105,6 +105,21 @@ export interface TableRelations {
   incoming: FkRef[]; // FKs on other tables → child rows
 }
 
+/** One table written by a related-data export, with its row contribution. */
+export interface RelatedTable {
+  schema: string;
+  table: string;
+  row_count: number;
+}
+
+/** Manifest from `export_related`: a record + all FK descendants → CSV folder. */
+export interface RelatedExportSummary {
+  dir: string;
+  tables: RelatedTable[];
+  total_rows: number;
+  truncated: boolean;
+}
+
 export interface MonitorOverview {
   database: string;
   server_version: string;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { api } from "../lib/api";
+import { api, pickDirectory } from "../lib/api";
 import { useAsync } from "../lib/hooks";
 import { bytes, elapsed, estRows, num } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -276,6 +276,26 @@ export function Browse({
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
+  }
+
+  /** Export the picked row and everything that references it (FKs followed down)
+      to a folder of CSVs the user chooses. */
+  async function exportRelated() {
+    if (!connId || !schema || !table || !detail || !rows.data) return;
+    const keys = rowKeys(origRow(detail), rows.data.columns);
+    if (!keys.length) {
+      toast("This table has no primary key to anchor the export", "error");
+      return;
+    }
+    const dir = await pickDirectory();
+    if (!dir) return;
+    const s = await api.exportRelated(connId, schema, table, keys, dir);
+    const folder = s.dir.split(/[\\/]/).pop() || s.dir;
+    const tail = s.truncated ? " (stopped at row cap)" : "";
+    toast(
+      `Exported ${s.total_rows.toLocaleString()} row${s.total_rows === 1 ? "" : "s"} across ${s.tables.length} table${s.tables.length === 1 ? "" : "s"} → ${folder}${tail}`,
+      "ok"
+    );
   }
 
   async function insertRow(values: CellValue[]) {
@@ -599,6 +619,7 @@ export function Browse({
           countFor={incomingCount}
           onClose={() => setDetail(null)}
           onDelete={canEditRows ? () => deleteRow(detail) : undefined}
+          onExportRelated={canEditRows ? exportRelated : undefined}
         />
       )}
 
@@ -729,6 +750,7 @@ function RowDrawer({
   countFor,
   onClose,
   onDelete,
+  onExportRelated,
 }: {
   columns: string[];
   row: (string | null)[];
@@ -738,9 +760,11 @@ function RowDrawer({
   countFor: (fk: FkRef) => Promise<number | null>;
   onClose: () => void;
   onDelete?: () => Promise<void>;
+  onExportRelated?: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // child-row counts for the "Referenced by" section, keyed by constraint
   const [counts, setCounts] = useState<Record<string, number | null>>({});
 
@@ -781,6 +805,18 @@ function RowDrawer({
     }
   }
 
+  async function exportRelated() {
+    if (!onExportRelated || exporting) return;
+    setExporting(true);
+    try {
+      await onExportRelated(); // toasts the result; leaves the drawer open
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   // Portal to <body> — see Dialog in components/ui.tsx.
   return createPortal(
     <>
@@ -790,6 +826,16 @@ function RowDrawer({
           <div style={{ fontSize: 15, fontWeight: 680 }}>Row detail</div>
           <div style={{ display: "flex", gap: 8 }}>
             <CopyBtn text={json} label="Copy JSON" />
+            {onExportRelated && (
+              <button
+                className="btn btn-sm"
+                onClick={exportRelated}
+                disabled={exporting}
+                title="Export this row and everything that references it (following foreign keys) to a folder of CSVs"
+              >
+                {exporting ? <Spinner size={13} /> : <Icon.download w={13} />} Export related
+              </button>
+            )}
             {onDelete && (
               <button className="btn btn-danger btn-sm" onClick={del} disabled={deleting} onMouseLeave={() => setConfirming(false)}>
                 {deleting ? <Spinner size={13} /> : <Icon.trash w={13} />} {confirming ? "Confirm delete" : "Delete"}
