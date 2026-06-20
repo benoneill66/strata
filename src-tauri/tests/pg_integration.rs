@@ -33,6 +33,17 @@ fn mutation_sql_builders() {
     let sql = pg::insert_sql("public", "t", &[cv("a", Some("1")), cv("b", None)]);
     assert_eq!(sql, "INSERT INTO \"public\".\"t\" (\"a\", \"b\") VALUES ('1', NULL)");
     assert_eq!(pg::insert_sql("public", "t", &[]), "INSERT INTO \"public\".\"t\" DEFAULT VALUES");
+
+    // keyset seek predicate: single column is a bare ">", multi-column expands
+    // to the lexicographic OR form (literals compared untyped, like filter_sql)
+    assert_eq!(
+        pg::keyset_predicate(&["id".into()], &["7".into()]),
+        "((\"id\" > '7'))"
+    );
+    assert_eq!(
+        pg::keyset_predicate(&["a".into(), "b".into()], &["1".into(), "x'y".into()]),
+        "((\"a\" > '1') OR (\"a\" = '1' AND \"b\" > 'x''y'))"
+    );
 }
 
 fn local_profile() -> ConnectionProfile {
@@ -230,6 +241,47 @@ async fn end_to_end_against_local_postgres() {
     assert_eq!(pg::exec_expect(&client, &sql, 1).await.unwrap(), 1);
     let res = pg::simple(&client, "SELECT count(*) FROM strata_test", 1).await.unwrap();
     assert_eq!(res.rows[0][0].as_deref(), Some("4"));
+
+    // ---- keyset pagination (the unsorted big-table fast path) ----
+
+    // page the 4 rows by their uuid pk in two limit-2 pages using the same
+    // seek the table_rows command builds; expect every row once, no overlap.
+    let pkcols = vec!["id".to_string()];
+    let page1 = pg::simple(
+        &client,
+        &format!("SELECT id FROM strata_test ORDER BY {} LIMIT 2", pg::quote_ident("id")),
+        100,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page1.rows.len(), 2);
+    let boundary = page1.rows[1][0].clone().unwrap();
+    let page2 = pg::simple(
+        &client,
+        &format!(
+            "SELECT id FROM strata_test WHERE {} ORDER BY {} LIMIT 2",
+            pg::keyset_predicate(&pkcols, &[boundary]),
+            pg::quote_ident("id")
+        ),
+        100,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page2.rows.len(), 2);
+    let mut seen: Vec<String> = page1.rows.iter().chain(&page2.rows).map(|r| r[0].clone().unwrap()).collect();
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 4); // all distinct, no row skipped or repeated
+
+    // ---- planner row estimate (the "~N" count without a full scan) ----
+
+    pg::simple(&client, "ANALYZE strata_test", 1).await.unwrap();
+    let est = pg::estimate_rows(&client, "SELECT 1 FROM strata_test").await.unwrap();
+    assert_eq!(est, 4); // exact after ANALYZE on a 4-row table
+    let filtered = pg::estimate_rows(&client, "SELECT 1 FROM strata_test WHERE n > 100000")
+        .await
+        .unwrap();
+    assert!(filtered < est); // the filter narrows the estimate
 
     pg::simple(&client, "DROP TABLE strata_test", 1).await.unwrap();
 }

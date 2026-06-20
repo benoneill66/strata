@@ -98,6 +98,7 @@ pub fn run() {
             commands::server_logs,
             commands::table_rows,
             commands::table_count,
+            commands::table_count_estimate,
             commands::update_rows,
             commands::insert_row,
             commands::delete_row,

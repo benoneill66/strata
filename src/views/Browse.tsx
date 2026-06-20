@@ -55,6 +55,9 @@ export function Browse({
   const [filters, setFilters] = useState<Filter[]>([]);
   const [count, setCount] = useState<number | null>(null);
   const [counting, setCounting] = useState(false);
+  // Keyset cursors keyed by offset: cursors[off] is the previous page's boundary
+  // pk values to seek past. Reset whenever the ordering or filters change.
+  const [cursors, setCursors] = useState<Record<number, string[]>>({});
   const [detail, setDetail] = useState<(string | null)[] | null>(null);
   const [inserting, setInserting] = useState(false);
 
@@ -124,16 +127,38 @@ export function Browse({
     [connId, schema, table]
   );
 
+  // Ordered primary-key columns (column order). Keyset paging needs a unique,
+  // deterministic ordering; we use it only for an unsorted browse of a table
+  // that has a pk — a user sort or a pk-less view falls back to offset paging.
+  const pkColList = useMemo(
+    () => (columns.data ?? []).filter((c) => c.is_pk).map((c) => c.name),
+    [columns.data]
+  );
+  const keysetCols = sortCol === null && pkColList.length > 0 ? pkColList : null;
+
   const rows = useAsync(
     () =>
       connId && schema && table
-        ? api.tableRows(connId, schema, table, limit, offset, sortCol, sortDesc, filters)
+        ? api.tableRows(
+            connId, schema, table, limit, offset, sortCol, sortDesc, filters,
+            keysetCols, keysetCols ? (cursors[offset] ?? null) : null
+          )
         : Promise.resolve(null),
-    [connId, schema, table, limit, offset, sortCol, sortDesc, filters]
+    [connId, schema, table, limit, offset, sortCol, sortDesc, filters, keysetCols]
   );
+
+  // Ordering/filters changed → stored seek cursors no longer line up; drop them.
+  useEffect(() => setCursors({}), [connId, database, schema, table, filters, sortCol, sortDesc, limit]);
 
   // count is invalidated when filters change
   useEffect(() => setCount(null), [filters, table, schema]);
+
+  // Instant approximate count (planner estimate); the exact count stays behind
+  // the Count button. Reuses the same filters as the grid.
+  const estCount = useAsync(
+    () => (connId && schema && table ? api.tableCountEstimate(connId, schema, table, filters) : Promise.resolve(null)),
+    [connId, schema, table, filters]
+  );
 
   async function fetchCount() {
     if (!connId || !schema || !table) return;
@@ -158,7 +183,20 @@ export function Browse({
     }
   }
 
-  const pkCols = useMemo(() => new Set((columns.data ?? []).filter((c) => c.is_pk).map((c) => c.name)), [columns.data]);
+  // Advance a page. In keyset mode, remember the current page's last-row pk
+  // values as the seek boundary for the next page; otherwise plain offset.
+  function nextPage() {
+    if (!rows.data) return;
+    if (keysetCols && rows.data.rows.length > 0) {
+      const cols = rows.data.columns;
+      const last = rows.data.rows[rows.data.rows.length - 1];
+      const boundary = keysetCols.map((c) => last[cols.indexOf(c)] ?? "");
+      setCursors((m) => ({ ...m, [offset + limit]: boundary }));
+    }
+    setOffset(offset + limit);
+  }
+
+  const pkCols = useMemo(() => new Set(pkColList), [pkColList]);
   const tableInfo = tables.data?.find((t) => t.name === table) ?? null;
   const filteredTables = (tables.data ?? []).filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -374,13 +412,15 @@ export function Browse({
     if (fk) followFk(fk, row);
   }
 
-  /** Count of child rows behind an incoming FK, for the drawer's "Referenced by". */
+  /** Approximate count of child rows behind an incoming FK, for the drawer's
+      "Referenced by". Uses the planner estimate so opening the drawer never
+      fires N full COUNT(*) scans against large child tables. */
   async function incomingCount(fk: FkRef): Promise<number | null> {
     if (!connId || !rows.data || !detail) return null;
     const f = fkFilters(fk, origRow(detail), rows.data.columns);
     if (!f) return 0;
     try {
-      return await api.tableCount(connId, fk.other_schema, fk.other_table, f);
+      return await api.tableCountEstimate(connId, fk.other_schema, fk.other_table, f);
     } catch {
       return null;
     }
@@ -583,7 +623,9 @@ export function Browse({
                 <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--muted)" }}>
                   <span className="mono">
                     {rows.data ? `${num(offset + 1)}–${num(offset + rows.data.rows.length)}` : "—"}
-                    {count !== null && ` of ${num(count)}`}
+                    {count !== null
+                      ? ` of ${num(count)}`
+                      : estCount.data != null && ` of ~${num(estCount.data)}`}
                   </span>
                   <button className="btn btn-ghost btn-sm" onClick={fetchCount} disabled={counting}>
                     {counting ? <Spinner size={12} /> : <Icon.zap w={12} />} {count === null ? "Count" : "Recount"}
@@ -598,7 +640,7 @@ export function Browse({
                   <button className="btn btn-sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
                     <Icon.chevLeft w={13} />
                   </button>
-                  <button className="btn btn-sm" disabled={!rows.data || rows.data.rows.length < limit} onClick={() => setOffset(offset + limit)}>
+                  <button className="btn btn-sm" disabled={!rows.data || rows.data.rows.length < limit} onClick={nextPage}>
                     <Icon.chevRight w={13} />
                   </button>
                 </div>
@@ -891,8 +933,8 @@ function RowDrawer({
                         <div className="mono" style={{ fontSize: 12.5, fontWeight: 650 }}>{fk.other_schema}.{fk.other_table}</div>
                         <div className="mono" style={{ fontSize: 10.5, color: "var(--muted)" }}>via {fk.other_columns.join(", ")}</div>
                       </div>
-                      <span className="chip mono" style={{ fontSize: 11 }}>
-                        {n === undefined ? <Spinner size={11} /> : n === null ? "—" : `${num(n)} row${n === 1 ? "" : "s"}`}
+                      <span className="chip mono" style={{ fontSize: 11 }} title="Approximate (planner estimate)">
+                        {n === undefined ? <Spinner size={11} /> : n === null ? "—" : n === 0 ? "0 rows" : `~${num(n)} row${n === 1 ? "" : "s"}`}
                       </span>
                       <span style={{ opacity: 0.7, display: "flex" }}><Icon.chevRight w={14} /></span>
                     </button>

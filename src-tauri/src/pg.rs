@@ -126,6 +126,47 @@ pub async fn simple(client: &Client, sql: &str, max_rows: usize) -> Result<Query
     })
 }
 
+/// Planner row estimate for a query, via `EXPLAIN (FORMAT JSON)` — reads
+/// `pg_statistic` and never executes the statement, so it's instant even on
+/// huge tables (no scan, no ANALYZE). Returns the top node's `Plan Rows`.
+/// Used for the approximate row counts shown without a full `COUNT(*)`.
+pub async fn estimate_rows(client: &Client, sql: &str) -> Result<i64, String> {
+    let res = simple(client, &format!("EXPLAIN (FORMAT JSON) {sql}"), 1).await?;
+    let txt = res
+        .rows
+        .first()
+        .and_then(|r| r.first().cloned())
+        .flatten()
+        .ok_or("no plan returned")?;
+    let v: serde_json::Value = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
+    v.get(0)
+        .and_then(|p| p.get("Plan"))
+        .and_then(|p| p.get("Plan Rows"))
+        .and_then(|n| n.as_f64())
+        .map(|n| n.round() as i64)
+        .ok_or_else(|| "no row estimate in plan".to_string())
+}
+
+/// Lexicographic "seek" predicate for keyset pagination: rows ordered by
+/// `cols` (all ascending) that sort strictly after the boundary row whose
+/// values are `after`. Built as the expanded OR form so it stays correct
+/// regardless of column type — literals are compared bare (not cast to text)
+/// so numeric/uuid/timestamp keys keep their natural ordering, same as the
+/// range ops in `filter_sql`. Callers pass primary-key columns, which are
+/// never NULL, so NULL ordering never arises here.
+pub fn keyset_predicate(cols: &[String], after: &[String]) -> String {
+    let mut terms = Vec::new();
+    for i in 0..cols.len() {
+        // tier i: first i columns equal, column i strictly greater
+        let mut parts: Vec<String> = (0..i)
+            .map(|j| format!("{} = {}", quote_ident(&cols[j]), quote_lit(&after[j])))
+            .collect();
+        parts.push(format!("{} > {}", quote_ident(&cols[i]), quote_lit(&after[i])));
+        terms.push(format!("({})", parts.join(" AND ")));
+    }
+    format!("({})", terms.join(" OR "))
+}
+
 // ---------- EXPLAIN (plan visualizer) ----------
 
 /// Run EXPLAIN over a statement and return the plan as a JSON document

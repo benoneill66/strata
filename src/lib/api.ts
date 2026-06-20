@@ -88,14 +88,23 @@ export const api = {
     offset: number,
     orderBy: string | null,
     orderDesc: boolean,
-    filters: Filter[]
+    filters: Filter[],
+    // Keyset paging: the pk columns to order/seek by, and the previous page's
+    // boundary values (null on the first page). Null disables keyset (offset).
+    keysetCols: string[] | null = null,
+    keysetAfter: string[] | null = null
   ): Promise<QueryResult> =>
     IS_TAURI
-      ? invoke("table_rows", { id, schema, table, limit, offset, orderBy, orderDesc, filters })
+      ? invoke("table_rows", { id, schema, table, limit, offset, orderBy, orderDesc, filters, keysetCols, keysetAfter })
       : demo.wait(demo.demoRows(limit, offset, filters)),
 
   tableCount: (id: string, schema: string, table: string, filters: Filter[]): Promise<number> =>
     IS_TAURI ? invoke("table_count", { id, schema, table, filters }) : demo.wait(48211, 700),
+
+  // Instant approximate count (planner estimate) — shown as "~N" while the
+  // exact count stays behind the Count button.
+  tableCountEstimate: (id: string, schema: string, table: string, filters: Filter[]): Promise<number> =>
+    IS_TAURI ? invoke("table_count_estimate", { id, schema, table, filters }) : demo.wait(48000, 120),
 
   updateRows: (id: string, schema: string, table: string, updates: RowUpdate[]): Promise<number> =>
     IS_TAURI ? invoke("update_rows", { id, schema, table, updates }) : demo.wait(updates.length, 250),

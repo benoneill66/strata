@@ -794,6 +794,17 @@ pub async fn server_logs(state: State<'_, AppState>, id: String, lines: u32) -> 
 
 // ---------- data ----------
 
+/// One page of a table's rows.
+///
+/// Two paging strategies. When `keyset_cols` is given (the frontend passes the
+/// primary-key columns for an unsorted browse), rows are ordered by those
+/// columns and the next page is fetched with a "seek" predicate (`WHERE (pk) >
+/// last-row`) instead of `OFFSET` — so paging deep into a large table stays
+/// fast because Postgres walks the pk index from the boundary instead of
+/// counting past every skipped row. `keyset_after` carries the boundary row's
+/// pk values (absent for the first page). Otherwise it falls back to
+/// `ORDER BY <order_by> LIMIT/OFFSET`, used for user-sorted columns and tables
+/// without a primary key (e.g. views).
 #[tauri::command]
 pub async fn table_rows(
     state: State<'_, AppState>,
@@ -805,6 +816,8 @@ pub async fn table_rows(
     order_by: Option<String>,
     order_desc: bool,
     filters: Vec<Filter>,
+    keyset_cols: Option<Vec<String>>,
+    keyset_after: Option<Vec<String>>,
 ) -> R<QueryResult> {
     let client = client_for(&state, &id).await?;
     let mut sql = format!(
@@ -812,16 +825,35 @@ pub async fn table_rows(
         pg::quote_ident(&schema),
         pg::quote_ident(&table)
     );
-    sql.push_str(&pg::filter_sql(&filters)?);
-    if let Some(col) = &order_by {
-        sql.push_str(&format!(
-            " ORDER BY {} {}",
-            pg::quote_ident(col),
-            if order_desc { "DESC" } else { "ASC" }
-        ));
-    }
+    let mut where_parts = pg::filter_sql(&filters)?;
     let limit = limit.clamp(1, 5_000);
-    sql.push_str(&format!(" LIMIT {limit} OFFSET {offset}"));
+
+    let keyset = keyset_cols.as_ref().filter(|c| !c.is_empty());
+    if let Some(cols) = keyset {
+        // seek predicate from the previous page's last row, AND-ed onto filters
+        if let Some(after) = keyset_after.as_ref().filter(|a| a.len() == cols.len()) {
+            let seek = pg::keyset_predicate(cols, after);
+            where_parts = if where_parts.is_empty() {
+                format!(" WHERE {seek}")
+            } else {
+                format!("{where_parts} AND {seek}")
+            };
+        }
+        sql.push_str(&where_parts);
+        let order: Vec<String> = cols.iter().map(|c| pg::quote_ident(c)).collect();
+        sql.push_str(&format!(" ORDER BY {}", order.join(", ")));
+        sql.push_str(&format!(" LIMIT {limit}"));
+    } else {
+        sql.push_str(&where_parts);
+        if let Some(col) = &order_by {
+            sql.push_str(&format!(
+                " ORDER BY {} {}",
+                pg::quote_ident(col),
+                if order_desc { "DESC" } else { "ASC" }
+            ));
+        }
+        sql.push_str(&format!(" LIMIT {limit} OFFSET {offset}"));
+    }
     pg::simple(&client, &sql, limit as usize).await
 }
 
@@ -845,6 +877,28 @@ pub async fn table_count(
         .first()
         .map(|r| cell(r, 0).parse().unwrap_or(0))
         .ok_or_else(|| "count failed".to_string())
+}
+
+/// Fast approximate row count from the query planner's estimate — instant on
+/// any table size because it reads statistics instead of scanning. Honours the
+/// same filters as `table_count`; the frontend shows it as a "~" figure and
+/// keeps the exact `table_count` behind an explicit button.
+#[tauri::command]
+pub async fn table_count_estimate(
+    state: State<'_, AppState>,
+    id: String,
+    schema: String,
+    table: String,
+    filters: Vec<Filter>,
+) -> R<i64> {
+    let client = client_for(&state, &id).await?;
+    let sql = format!(
+        "SELECT 1 FROM {}.{}{}",
+        pg::quote_ident(&schema),
+        pg::quote_ident(&table),
+        pg::filter_sql(&filters)?
+    );
+    pg::estimate_rows(&client, &sql).await
 }
 
 // ---------- row mutations (inline editing) ----------
