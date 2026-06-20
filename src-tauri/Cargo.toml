@@ -1,6 +1,6 @@
 [package]
 name = "strata"
-version = "1.9.0"
+version = "1.10.0"
 description = "Strata — a native Postgres data browser"
 authors = ["Strata"]
 edition = "2021"
