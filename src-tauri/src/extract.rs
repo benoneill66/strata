@@ -98,19 +98,19 @@ fn tuple_key(vals: &[String]) -> String {
     vals.iter().map(|v| format!("v{}:{}", v.len(), v)).collect()
 }
 
-/// Build an `IN` predicate matching `child_cols` (compared on text, so any
-/// column type works) against a non-empty batch of value tuples. Single column →
-/// `col::text IN ('a','b')`; multi → `(c1::text, c2::text) IN (('a','x'),…)`.
+/// Build an `IN` predicate matching `child_cols` against a non-empty batch of
+/// value tuples. Single column → `col IN ('a','b')`; multi →
+/// `(c1, c2) IN (('a','x'),…)`. The values are written as untyped literals so
+/// Postgres coerces them to each column's type (the same trick `insert_sql` uses)
+/// — crucially we do *not* cast the column to text, which would defeat any index
+/// on the FK column and force a sequential scan on every child table.
 fn in_predicate(child_cols: &[String], tuples: &[Vec<String>]) -> String {
     let multi = child_cols.len() > 1;
     let lhs = if multi {
-        let cs: Vec<String> = child_cols
-            .iter()
-            .map(|c| format!("{}::text", quote_ident(c)))
-            .collect();
+        let cs: Vec<String> = child_cols.iter().map(|c| quote_ident(c)).collect();
         format!("({})", cs.join(", "))
     } else {
-        format!("{}::text", quote_ident(&child_cols[0]))
+        quote_ident(&child_cols[0])
     };
     let rows: Vec<String> = tuples
         .iter()
@@ -126,15 +126,16 @@ fn in_predicate(child_cols: &[String], tuples: &[Vec<String>]) -> String {
     format!("{lhs} IN ({})", rows.join(", "))
 }
 
-/// WHERE clause pinning a row by its key values (text comparison; NULL → IS NULL),
-/// the same shape `pg::update_sql` matches rows on.
+/// WHERE clause pinning the seed row by its primary-key values. Values are
+/// untyped literals coerced to the column type (NULL → IS NULL); we don't cast
+/// the column to text so the primary-key index is used instead of a seq scan.
 fn key_where(keys: &[CellValue]) -> String {
     let parts: Vec<String> = keys
         .iter()
         .map(|k| {
             let col = quote_ident(&k.column);
             match &k.value {
-                Some(v) => format!("{col}::text = {}", quote_lit(v)),
+                Some(v) => format!("{col} = {}", quote_lit(v)),
                 None => format!("{col} IS NULL"),
             }
         })
@@ -355,7 +356,7 @@ mod tests {
     #[test]
     fn in_predicate_single_column() {
         let p = in_predicate(&["id".to_string()], &[vec!["1".into()], vec!["2".into()]]);
-        assert_eq!(p, "\"id\"::text IN ('1', '2')");
+        assert_eq!(p, "\"id\" IN ('1', '2')");
     }
 
     #[test]
@@ -364,7 +365,7 @@ mod tests {
             &["a".to_string(), "b".to_string()],
             &[vec!["x".into(), "y'z".into()]],
         );
-        assert_eq!(p, "(\"a\"::text, \"b\"::text) IN (('x', 'y''z'))");
+        assert_eq!(p, "(\"a\", \"b\") IN (('x', 'y''z'))");
     }
 
     #[test]
@@ -397,6 +398,6 @@ mod tests {
             CellValue { column: "id".into(), value: Some("7".into()) },
             CellValue { column: "tag".into(), value: None },
         ];
-        assert_eq!(key_where(&keys), " WHERE \"id\"::text = '7' AND \"tag\" IS NULL");
+        assert_eq!(key_where(&keys), " WHERE \"id\" = '7' AND \"tag\" IS NULL");
     }
 }
